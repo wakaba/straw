@@ -16,3 +16,9 @@
 [submodule "modules/web-css"]
 	path = modules/web-css
 	url = git://github.com/manakai/perl-web-css
+[submodule "modules/promise"]
+	path = modules/promise
+	url = git://github.com/wakaba/perl-promise
+[submodule "modules/web-useragent-functions"]
+	path = modules/web-useragent-functions
+	url = git://github.com/wakaba/perl-web-useragent-functions
