@@ -1,0 +1,8 @@
+Scalar::Util~1.42
+Exporter::Lite~0.06
+Test::NoWarnings~1.04
+Exporter~5.72
+Encode~2.78
+Unicode::Normalize~1.23
+Carp~1.36
+Unicode::Stringprep~1.105
