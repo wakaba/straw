@@ -22,3 +22,6 @@
 [submodule "modules/web-useragent-functions"]
 	path = modules/web-useragent-functions
 	url = git://github.com/wakaba/perl-web-useragent-functions
+[submodule "modules/json-ps"]
+	path = modules/json-ps
+	url = git://github.com/wakaba/perl-json-ps
