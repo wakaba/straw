@@ -25,3 +25,9 @@
 [submodule "modules/json-ps"]
 	path = modules/json-ps
 	url = git://github.com/wakaba/perl-json-ps
+[submodule "modules/web-resource"]
+	path = modules/web-resource
+	url = git://github.com/manakai/perl-web-resource
+[submodule "modules/web-datetime"]
+	path = modules/web-datetime
+	url = git://github.com/manakai/perl-web-datetime

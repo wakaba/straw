@@ -2,6 +2,8 @@
 - "../../modules/json-ps" tests
 - "../../modules/web-encodings" tests build
 - "../../modules/web-url" tests build
+- "../../modules/web-datetime" tests build
+- "../../modules/web-resource" tests build updater
 - "../../modules/web-dom" tests build
 - "../../modules/web-css" tests build
 - "../../modules/web-markup" tests build
