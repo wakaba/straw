@@ -49,3 +49,12 @@
 [submodule "modules/promised-file"]
 	path = modules/promised-file
 	url = git://github.com/wakaba/perl-promised-file
+[submodule "t_deps/modules/promised-plackup"]
+	path = t_deps/modules/promised-plackup
+	url = git://github.com/wakaba/perl-promised-plackup
+[submodule "modules/twiggy-packed"]
+	path = modules/twiggy-packed
+	url = git://github.com/wakaba/perl-twiggy-packed
+[submodule "modules/wanage"]
+	path = modules/wanage
+	url = git://github.com/wakaba/wanage
