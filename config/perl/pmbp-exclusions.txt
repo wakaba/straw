@@ -6,7 +6,7 @@
 - "../../modules/web-resource" tests build updater
 - "../../modules/web-dom" tests build
 - "../../modules/web-css" tests build
-- "../../modules/web-markup" tests build
+- "../../modules/web-markup" tests build tests-json
 - "../../modules/web-useragent-functions" tests lwp anyeventsocks oauth wsse cli testws curl
 - "../../modules/wanage" tests build datetime mp
 - "../../modules/temma" tests
@@ -14,9 +14,12 @@
 - "../../modules/charclass" tests build
 - "../../modules/web-utils" tests
 - "../../modules/mediawiki-parser" tests web
+- "../../modules/dongry" tests datetime dbi mp
+- "../../modules/anyevent-mysql-client" tests
 - "../../modules/promise" tests
 - "../../modules/promised-file" tests
 - "../../modules/promised-command" tests
+- "../../modules/promised-plackup" tests
 - "../../modules/twiggy-packed" tests
 - "../../t_deps/modules/test-x1" tests
-- "../../modules/promised-plackup" tests
+- "../../t_deps/modules/promised-mysqld" tests

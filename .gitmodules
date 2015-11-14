@@ -31,3 +31,21 @@
 [submodule "modules/web-datetime"]
 	path = modules/web-datetime
 	url = git://github.com/manakai/perl-web-datetime
+[submodule "modules/dongry"]
+	path = modules/dongry
+	url = git://github.com/wakaba/dongry
+[submodule "modules/ooutils"]
+	path = modules/ooutils
+	url = git://github.com/wakaba/perl-ooutils.git
+[submodule "modules/anyevent-mysql-client"]
+	path = modules/anyevent-mysql-client
+	url = git://github.com/wakaba/perl-anyevent-mysql-client
+[submodule "t_deps/modules/promised-mysqld"]
+	path = t_deps/modules/promised-mysqld
+	url = git://github.com/wakaba/perl-promised-mysqld
+[submodule "modules/promised-command"]
+	path = modules/promised-command
+	url = git://github.com/wakaba/perl-promised-command
+[submodule "modules/promised-file"]
+	path = modules/promised-file
+	url = git://github.com/wakaba/perl-promised-file
