@@ -2,8 +2,6 @@ package Straw::Action;
 use strict;
 use warnings;
 use Promise;
-use Dongry::Type;
-use Dongry::Type::JSONPS;
 use Straw::Step::Fetch;
 use Straw::Step::Stream;
 use Straw::Step::RSS;
@@ -44,14 +42,15 @@ sub steps ($$) {
         $act = {
           in_type => 'Stream',
           code => sub {
+            my $step = $_[1];
             my $items = [];
             for my $item (@{$_[2]->{items}}) {
-              push @$items, $code->($item);
+              push @$items, $code->($item, $step); # XXX args
               # XXX validation
             }
             return {type => 'Stream', items => $items};
           },
-        };
+        } if defined $code;
       }
       die "Bad step |$step_name|" unless defined $act;
 
@@ -66,23 +65,5 @@ sub steps ($$) {
   }
   return $p;
 } # steps
-
-sub load_stream ($$) {
-  my ($self, $in) = @_;
-  return Promise->reject ("Bad type |$in->{type}|")
-      unless $in->{type} eq 'StreamRef';
-
-  my $out = {type => 'Stream', items => []};
-  return $self->db->select ('stream_item', {
-    stream_id => Dongry::Type->serialize ('text', $in->{stream_id}),
-    # XXX paging
-  })->then (sub {
-    for (@{$_[0]->all}) {
-      push @{$out->{items}}, Dongry::Type->parse ('json', $_->{data});
-    }
-  })->then (sub {
-    return $out;
-  });
-} # load_stream
 
 1;

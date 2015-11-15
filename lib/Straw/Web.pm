@@ -60,8 +60,9 @@ sub main ($$$) {
       $path->[0] eq 'stream' and $path->[1] =~ /\A[0-9]+\z/) {
     # /stream/{stream_id}
     my $act = Straw::Action->new_from_db ($db);
-    return $act->load_stream ({type => 'StreamRef',
-                               stream_id => $path->[1]})->then (sub {
+    return $act->steps ([{name => 'load_stream',
+                          input => {type => 'StreamRef',
+                                    stream_id => $path->[1]}}])->then (sub {
       return $class->send_json ($app, $_[0]);
     });
   }

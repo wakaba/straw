@@ -1,6 +1,8 @@
 package Straw::Step::Stream;
 use strict;
 use warnings;
+use Time::HiRes qw(time);
+use Digest::SHA qw(sha1_hex);
 use JSON::PS;
 use Promise;
 use Dongry::Type;
@@ -18,18 +20,37 @@ $Straw::Step->{save_stream} = {
     ## Stream items
     return Promise->resolve ($in) unless @{$in->{items}};
     return $self->db->insert ('stream_item', [map {
-      my $key = undef;
-      my $time = time;
-      $key //= $time;
+      my $updated = time;
+      my $timestamp = $_->{props}->{timestamp} || $updated;
+      my $key = sha1_hex (Dongry::Type->serialize ('text', $_->{props}->{key} // $timestamp));
       +{
         stream_id => Dongry::Type->serialize ('text', $stream_id),
-        item_key => $key, # XXX
+        key => $key,
         data => Dongry::Type->serialize ('json', $_),
-        stream_item_timestamp => $time,
+        timestamp => $timestamp,
+        updated => $updated,
       };
     } reverse @{$in->{items}}], duplicate => 'replace')->then (sub { return $in });
   },
 }; # save_stream
+
+$Straw::Step->{load_stream} = {
+  in_type => 'StreamRef',
+  code => sub {
+    my ($self, $step, $in) = @_;
+    my $out = {type => 'Stream', items => []};
+    return $self->db->select ('stream_item', {
+      stream_id => Dongry::Type->serialize ('text', $in->{stream_id}),
+      # XXX paging
+    }, order => ['timestamp', 'DESC'])->then (sub {
+      for (@{$_[0]->all}) {
+        push @{$out->{items}}, Dongry::Type->parse ('json', $_->{data});
+      }
+    })->then (sub {
+      return $out;
+    });
+  },
+}; # load_stream
 
 $Straw::Step->{dump_stream} = {
   in_type => 'Stream',
@@ -39,5 +60,24 @@ $Straw::Step->{dump_stream} = {
     return $in;
   },
 }; # dump_stream
+
+$Straw::ItemStep->{use_url_as_key} = sub {
+  my $item = $_[0];
+  my $v = $item->{props}->{url};
+  $item->{props}->{key} = $v if defined $v;
+  return $item;
+}; # use_url_as_key
+
+$Straw::ItemStep->{select_props} = sub {
+  my ($item, $step) = @_;
+  my $out = {};
+  my @field = (defined $step->{fields} && ref $step->{fields} eq 'ARRAY')
+      ? @{$step->{fields} || []} : ();
+  for (@field) {
+    $out->{props}->{$_} = $item->{props}->{$_}
+        if defined $item->{props}->{$_};
+  }
+  return $out;
+}; # select_props
 
 1;

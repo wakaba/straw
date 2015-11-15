@@ -10,10 +10,12 @@ create table if not exists `process` (
 
 create table if not exists `stream_item` (
   `stream_id` bigint unsigned not null,
-  `item_key` varbinary(511) not null,
+  `key` varbinary(511) not null,
   `data` mediumblob not null,
-  `stream_item_timestamp` double not null,
-  primary key (`stream_id`, `item_key`),
-  key (`item_key`),
-  key (`stream_item_timestamp`)
+  `timestamp` double not null,
+  `updated` double not null,
+  primary key (`stream_id`, `key`),
+  key (`key`),
+  key (`timestamp`),
+  key (`updated`)
 ) default charset=binary engine=innodb;
