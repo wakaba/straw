@@ -19,56 +19,51 @@ sub db ($) {
   return $_[0]->{db};
 } # db
 
-sub get_url ($$) {
-  my $url = $_[1];
+sub url_to_httpres ($$$) {
+  my $in = $_[2];
+  return Promise->reject ("Bad type |$in->{type}|")
+      unless $in->{type} eq 'url';
   return Promise->new (sub {
     my ($ok, $ng) = @_;
     # XXX redirect
     http_get
-        url => $url,
+        url => $in->{url},
         anyevent => 1,
         cb => sub {
-          my $res = $_[1];
-          if ($res->code == 200) {
-            $ok->($res);
-          } else {
-            $ng->($res);
-          }
+          $ok->({type => 'httpres', res => $_[1]});
         };
   });
-} # get_url
+} # url_to_httpres
 
-sub url_to_doc ($$) {
-  my ($self, $in) = @_;
+sub httpres_to_doc ($$$) {
+  my ($self, $step, $in) = @_;
   return Promise->reject ("Bad type |$in->{type}|")
-      unless $in->{type} eq 'url';
-  return $self->get_url ($in->{url})->then (sub {
-    my $res = $_[0];
-    my $mime = Web::MIME::Type->parse_web_mime_type
-        (scalar $res->header ('Content-Type'));
-    # XXX MIME sniffing
-    if ($mime->as_valid_mime_type_with_no_params eq 'text/html') {
-      my $parser = Web::HTML::Parser->new;
-      my $doc = new Web::DOM::Document;
-      $parser->parse_byte_string
-          ($mime->param ('charset'), $res->content => $doc);
-      $doc->manakai_set_url ($in->{url}); # XXX redirect
-      return {type => 'document', document => $doc};
-    } elsif ($mime->is_xml_mime_type) {
-      my $parser = Web::XML::Parser->new;
-      my $doc = new Web::DOM::Document;
-      $parser->parse_byte_string
-          ($mime->param ('charset'), $res->content => $doc);
-      $doc->manakai_set_url ($in->{url}); # XXX redirect
-      return {type => 'document', document => $doc};
-    } else {
-      die "Unknown MIME type";
-    }
-  });
-} # url_to_doc
+      unless $in->{type} eq 'httpres';
+  my $res = $in->{res};
+  my $mime = Web::MIME::Type->parse_web_mime_type
+      (scalar $res->header ('Content-Type'));
+  # XXX MIME sniffing
+  if ($mime->as_valid_mime_type_with_no_params eq 'text/html') {
+    my $parser = Web::HTML::Parser->new;
+    my $doc = new Web::DOM::Document;
+    $parser->parse_byte_string
+        ($mime->param ('charset'), $res->content => $doc);
+    $doc->manakai_set_url ($in->{url}); # XXX redirect
+    return {type => 'document', document => $doc};
+  } elsif ($mime->is_xml_mime_type) {
+    my $parser = Web::XML::Parser->new;
+    my $doc = new Web::DOM::Document;
+    $parser->parse_byte_string
+        ($mime->param ('charset'), $res->content => $doc);
+    $doc->manakai_set_url ($in->{url}); # XXX redirect
+    return {type => 'document', document => $doc};
+  } else {
+    die "Unknown MIME type";
+  }
+} # httpres_to_doc
 
-sub parse_rss ($$) {
-  my $in = $_[1];
+sub parse_rss ($$$) {
+  my $in = $_[2];
   return Promise->reject ("Bad type |$in->{type}|")
       unless $in->{type} eq 'document';
   my $doc_el = $in->{document}->document_element;
@@ -93,8 +88,8 @@ sub parse_rss ($$) {
   return $stream;
 } # parse_rss
 
-sub parse_html ($$) {
-  my $in = $_[1];
+sub parse_html ($$$) {
+  my $in = $_[2];
   return Promise->reject ("Bad type |$in->{type}|")
       unless $in->{type} eq 'document';
   my $out = {type => 'stream', props => {}, items => []};
@@ -152,7 +147,7 @@ sub parse_html ($$) {
 } # parse_html
 
 sub apply_stream_item_processor ($$$) {
-  my ($self, $in, $rule) = @_;
+  my ($self, $rule, $in) = @_;
   die "Bad type |$in->{type}|" unless $in->{type} eq 'stream';
   my $code = $Straw::Stream::ItemProcessor->{$rule} or die "Bad rule |$rule|";
   my $items = [];
@@ -163,12 +158,12 @@ sub apply_stream_item_processor ($$$) {
   return $in;
 } # apply_stream_item_processor
 
-sub save_stream ($$) {
-  my ($self, $in) = @_;
+sub save_stream ($$$) {
+  my ($self, $step, $in) = @_;
   return Promise->reject ("Bad type |$in->{type}|")
       unless $in->{type} eq 'stream';
 
-  my $stream_id = 53; # XXX
+  my $stream_id = $step->{stream_id}; # XXX or error
 
   ## Stream metadata
   # XXX
@@ -180,12 +175,12 @@ sub save_stream ($$) {
     my $time = time;
     $key //= $time;
     +{
-      stream_id => $stream_id,
+      stream_id => Dongry::Type->serialize ('text', $stream_id),
       item_key => $key, # XXX
       data => Dongry::Type->serialize ('json', $_),
       stream_item_timestamp => $time,
     };
-  } @{$in->{items}}], duplicate => 'replace')->then (sub { return $in });
+  } reverse @{$in->{items}}], duplicate => 'replace')->then (sub { return $in });
 } # save_stream
 
 sub load_stream ($$) {
