@@ -60,7 +60,8 @@ sub main ($$$) {
       $path->[0] eq 'stream' and $path->[1] =~ /\A[0-9]+\z/) {
     # /stream/{stream_id}
     my $act = Straw::Action->new_from_db ($db);
-    return $act->load_stream ({type => 'streamref', stream_id => $path->[1]})->then (sub {
+    return $act->load_stream ({type => 'StreamRef',
+                               stream_id => $path->[1]})->then (sub {
       return $class->send_json ($app, $_[0]);
     });
   }
@@ -81,15 +82,12 @@ sub main ($$$) {
         $app->http->set_response_header
             ('Content-Type', 'text/plain; charset=utf-8');
         my $act = Straw::Action->new_from_db ($db);
-        my $p = Promise->resolve ({type => 'empty'});
-        for my $step (@{$rule->{steps} or []}) {
-          my $step_name = $step->{name};
-          $p = $p->then (sub {
-            $app->http->send_response_body_as_text ("$step_name...\n");
-            return $act->$step_name ($step, $step->{input} || $_[0]); # XXX
-          });
-        }
-        return $p->then (sub {
+        $act->onlog (sub {
+          $app->http->send_response_body_as_text ("$_[1]\n");
+        });
+        return $act->steps ($rule->{steps})->catch (sub {
+          $app->http->send_response_body_as_text ("Error: $_[0]\n");
+        })->then (sub {
           $app->http->send_response_body_as_text ("Done\n");
           $app->http->close_response_body;
         });

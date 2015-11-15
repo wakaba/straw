@@ -2,14 +2,13 @@ package Straw::Action;
 use strict;
 use warnings;
 use Promise;
-use Web::MIME::Type;
-use Web::DOM::Document;
-use Web::HTML::Parser;
-use Web::XML::Parser;
-use Web::UserAgent::Functions qw(http_get);
 use Dongry::Type;
 use Dongry::Type::JSONPS;
-use Straw::Stream;
+use Straw::Step::Fetch;
+use Straw::Step::Stream;
+use Straw::Step::RSS;
+use Straw::Step::HTML;
+use Straw::Step::Misc;
 
 sub new_from_db ($$) {
   return bless {db => $_[1]}, $_[0];
@@ -19,176 +18,61 @@ sub db ($) {
   return $_[0]->{db};
 } # db
 
-sub url_to_httpres ($$$) {
-  my $in = $_[2];
-  return Promise->reject ("Bad type |$in->{type}|")
-      unless $in->{type} eq 'url';
-  return Promise->new (sub {
-    my ($ok, $ng) = @_;
-    # XXX redirect
-    http_get
-        url => $in->{url},
-        anyevent => 1,
-        cb => sub {
-          $ok->({type => 'httpres', res => $_[1]});
+sub onlog ($;$) {
+  if (@_ > 1) {
+    $_[0]->{onlog} = $_[1];
+  }
+  return $_[0]->{onlog} ||= sub { };
+} # onlog
+
+$Straw::Step ||= {};
+$Straw::ItemStep ||= {};
+
+sub steps ($$) {
+  my ($self, $steps) = @_;
+  my $p = Promise->resolve ({type => 'Empty'});
+  # XXX validate $steps
+  my $log = $self->onlog;
+  for my $step (@$steps) {
+    my $step_name = $step->{name};
+    $p = $p->then (sub {
+      $log->($self, "$step_name...");
+
+      my $act = $Straw::Step->{$step_name};
+      if (not defined $act) {
+        my $code = $Straw::ItemStep->{$step_name};
+        $act = {
+          in_type => 'Stream',
+          code => sub {
+            my $items = [];
+            for my $item (@{$_[2]->{items}}) {
+              push @$items, $code->($item);
+              # XXX validation
+            }
+            return {type => 'Stream', items => $items};
+          },
         };
-  });
-} # url_to_httpres
-
-sub httpres_to_doc ($$$) {
-  my ($self, $step, $in) = @_;
-  return Promise->reject ("Bad type |$in->{type}|")
-      unless $in->{type} eq 'httpres';
-  my $res = $in->{res};
-  my $mime = Web::MIME::Type->parse_web_mime_type
-      (scalar $res->header ('Content-Type'));
-  # XXX MIME sniffing
-  if ($mime->as_valid_mime_type_with_no_params eq 'text/html') {
-    my $parser = Web::HTML::Parser->new;
-    my $doc = new Web::DOM::Document;
-    $parser->parse_byte_string
-        ($mime->param ('charset'), $res->content => $doc);
-    $doc->manakai_set_url ($in->{url}); # XXX redirect
-    return {type => 'document', document => $doc};
-  } elsif ($mime->is_xml_mime_type) {
-    my $parser = Web::XML::Parser->new;
-    my $doc = new Web::DOM::Document;
-    $parser->parse_byte_string
-        ($mime->param ('charset'), $res->content => $doc);
-    $doc->manakai_set_url ($in->{url}); # XXX redirect
-    return {type => 'document', document => $doc};
-  } else {
-    die "Unknown MIME type";
-  }
-} # httpres_to_doc
-
-sub parse_rss ($$$) {
-  my $in = $_[2];
-  return Promise->reject ("Bad type |$in->{type}|")
-      unless $in->{type} eq 'document';
-  my $doc_el = $in->{document}->document_element;
-  my $stream = {type => 'stream', props => {}, items => []};
-  if (defined $doc_el and $doc_el->manakai_element_type_match (q<http://www.w3.org/1999/02/22-rdf-syntax-ns#>, 'RDF')) {
-    for my $el (@{$doc_el->children}) {
-      if ($el->manakai_element_type_match ('http://purl.org/rss/1.0/', 'channel')) {
-        for my $el (@{$el->children}) {
-          unless ($el->manakai_element_type_match ('http://purl.org/rss/1.0/', 'items')) {
-            push @{$stream->{props}->{$el->manakai_expanded_uri} ||= []}, $el->text_content;
-          }
-        }
-      } elsif ($el->manakai_element_type_match ('http://purl.org/rss/1.0/', 'item')) {
-        my $item = {};
-        for my $el (@{$el->children}) {
-          push @{$item->{props}->{$el->manakai_expanded_uri} ||= []}, $el->text_content;
-        }
-        push @{$stream->{items}}, $item;
       }
-    }
-  }
-  return $stream;
-} # parse_rss
+      die "Bad step |$step_name|" unless defined $act;
 
-sub parse_html ($$$) {
-  my $in = $_[2];
-  return Promise->reject ("Bad type |$in->{type}|")
-      unless $in->{type} eq 'document';
-  my $out = {type => 'stream', props => {}, items => []};
-  my $x = $in->{document}->title;
-  $out->{props}->{title} = $x if length $x;
-#    for (@{$in->{document}->query_selector_all ('.additional-list > li')}) {
-  for (@{$in->{document}->query_selector_all ('.post')}) {
-    my $item = {};
-
-    my $video = $_->query_selector ('video');
-    if (defined $video) {
-      $item->{props}->{video_url} = $video->src;
-    }
-
-    #my $link = $_->query_selector ('a');
-    my $link = $_->query_selector ('.time a');
-    if (defined $link) {
-      $link = $link->clone_node (1);
-      for (@{$link->query_selector_all ('rt, rp')}) {
-        my $parent = $_->parent_node;
-        $parent->remove_child ($_) if defined $parent;
+      my $input = $step->{input} // $_[0];
+      if (not defined $input->{type} or
+          not defined $act->{in_type} or
+          not $act->{in_type} eq $input->{type}) {
+        die "Input has different type |$input->{type}| from the expected type |$act->{in_type}|";
       }
-        #$item->{props}->{title} = $link->text_content;
-      $item->{props}->{url} = $link->href;
-    }
-
-    my $user = $_->query_selector ('h2 + a');
-    if (defined $user) {
-      $item->{props}->{author_name} = $user->text_content;
-      $item->{props}->{author_url} = $user->href;
-    }
-
-    my $url = $_->query_selector ('h2 a');
-    if (defined $url) {
-      $item->{props}->{url} = $url->href;
-    }
-
-    my $desc = $_->query_selector ('.description');
-    if (defined $desc) {
-      $item->{props}->{title} = $desc->text_content;
-    }
-
-    my $time = $_->query_selector ('p:-manakai-contains("Uploaded at")');
-    if (defined $time) {
-      if ($time->text_content =~ /Uploaded at (\S+)/) {
-        my $parser = Web::DateTime::Parser->new;
-        my $dt = $parser->parse_html_datetime_value ($1);
-        $item->{props}->{timestamp} = $dt->to_unix_number if defined $dt;
-      }
-    }
-
-    push @{$out->{items}}, $item if keys %$item;
+      return $act->{code}->($self, $step, $input);
+    });
   }
-  return $out;
-} # parse_html
-
-sub apply_stream_item_processor ($$$) {
-  my ($self, $rule, $in) = @_;
-  die "Bad type |$in->{type}|" unless $in->{type} eq 'stream';
-  my $code = $Straw::Stream::ItemProcessor->{$rule} or die "Bad rule |$rule|";
-  my $items = [];
-  for my $item (@{$in->{items}}) {
-    push @$items, $code->($item);
-  }
-  $in->{items} = $items;
-  return $in;
-} # apply_stream_item_processor
-
-sub save_stream ($$$) {
-  my ($self, $step, $in) = @_;
-  return Promise->reject ("Bad type |$in->{type}|")
-      unless $in->{type} eq 'stream';
-
-  my $stream_id = $step->{stream_id}; # XXX or error
-
-  ## Stream metadata
-  # XXX
-
-  ## Stream items
-  return Promise->resolve ($in) unless @{$in->{items}};
-  return $self->db->insert ('stream_item', [map {
-    my $key = undef;
-    my $time = time;
-    $key //= $time;
-    +{
-      stream_id => Dongry::Type->serialize ('text', $stream_id),
-      item_key => $key, # XXX
-      data => Dongry::Type->serialize ('json', $_),
-      stream_item_timestamp => $time,
-    };
-  } reverse @{$in->{items}}], duplicate => 'replace')->then (sub { return $in });
-} # save_stream
+  return $p;
+} # steps
 
 sub load_stream ($$) {
   my ($self, $in) = @_;
   return Promise->reject ("Bad type |$in->{type}|")
-      unless $in->{type} eq 'streamref';
+      unless $in->{type} eq 'StreamRef';
 
-  my $out = {type => 'stream', items => []};
+  my $out = {type => 'Stream', items => []};
   return $self->db->select ('stream_item', {
     stream_id => Dongry::Type->serialize ('text', $in->{stream_id}),
     # XXX paging
