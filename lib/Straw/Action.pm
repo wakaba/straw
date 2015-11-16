@@ -75,29 +75,40 @@ sub load_for_export ($$) {
 sub load_for_stream ($$$) {
   my ($self, $stream_id, $rule) = @_;
 
-  return Promise->resolve ({type => 'Empty'})
-      unless defined $rule->{input_stream_id};
+  my @id;
+  push @id, @{$rule->{input_stream_ids}}
+      if defined $rule->{input_stream_ids} and
+         ref $rule->{input_stream_ids} eq 'ARRAY';
+  @id = @id[0..9] if @id > 10;
+  return Promise->resolve ({type => 'Empty'}) unless @id;
+  @id = map { Dongry::Type->serialize ('text', $_) } @id;
 
   my $out = {type => 'Stream', items => []};
   return Promise->resolve->then (sub {
     return $self->db->select ('stream_subscription', {
-      src_stream_id => Dongry::Type->serialize ('text', $rule->{input_stream_id}),
+      src_stream_id => {-in => \@id},
       dst_stream_id => Dongry::Type->serialize ('text', $stream_id),
-    }, fields => ['ref']);
+    }, fields => ['ref', 'src_stream_id']);
   })->then (sub {
-    my $data = defined $_[0] ? $_[0]->first : undef;
-    my $ref = defined $data ? $data->{ref} || 0 : 0;
-    $self->onlog->($self, "ref=$ref");
-    return $self->db->select ('stream_item', {
-      stream_id => Dongry::Type->serialize ('text', $rule->{input_stream_id}),
-      updated => {'>', $ref},
-    }, order => ['updated', 'ASC'], limit => 10);
-  })->then (sub {
+    my $p = Promise->resolve;
     for (@{$_[0]->all}) {
-      my $data = Dongry::Type->parse ('json', $_->{data});
-      push @{$out->{items}}, $data;
-      $self->{loaded_stream_updated} = $_->{updated};
+      my $src = $_->{src_stream_id};
+      my $ref = $_->{ref} || 0;
+      $self->onlog->($self, "[$src] ref=$ref");
+      $p = $p->then (sub {
+        return $self->db->select ('stream_item', {
+          stream_id => $src,
+          updated => {'>', $ref},
+        }, order => ['updated', 'ASC'], limit => 10); # XXX
+      })->then (sub {
+        for (@{$_[0]->all}) {
+          my $data = Dongry::Type->parse ('json', $_->{data});
+          push @{$out->{items}}, $data;
+          $self->{loaded_stream_updated}->{$src} = $_->{updated};
+        }
+      });
     }
+    return $p;
   })->then (sub {
     return $out;
   });
@@ -165,18 +176,22 @@ sub enqueue_stream_processes ($$$) {
 } # enqueue_stream_process
 
 sub update_subscriptions ($$$) {
-  my ($self, $dst_stream_id, $data) = @_;
+  my ($self, $dst_stream_id, $rule) = @_;
   my $p = Promise->resolve;
   my $db = $self->db;
   my $expires = time + 60*60*24;
 
-  my $input_id = $data->{input_stream_id};
-  if (defined $input_id) {
+  my @id;
+  push @id, @{$rule->{input_stream_ids}}
+      if defined $rule->{input_stream_ids} and
+         ref $rule->{input_stream_ids} eq 'ARRAY';
+  @id = @id[0..9] if @id > 10;
+  for my $input_id (@id) {
     $p = $p->then (sub {
       return $db->insert ('stream_subscription', [{
         src_stream_id => Dongry::Type->serialize ('text', $input_id),
         dst_stream_id => Dongry::Type->serialize ('text', $dst_stream_id),
-        ref => $self->{loaded_stream_updated} || 0,
+        ref => $self->{loaded_stream_updated}->{$input_id} || 0,
         expires => $expires,
       }], duplicate => {
         ref => $db->bare_sql_fragment ('GREATEST(VALUES(ref),ref)'),
@@ -186,7 +201,7 @@ sub update_subscriptions ($$$) {
   }
 
   my $key;
-  my $fetch = $data->{fetch};
+  my $fetch = $rule->{fetch};
   if (defined $fetch and ref $fetch eq 'HASH' and
       defined $fetch->{url}) {
     $p = $p->then (sub {
