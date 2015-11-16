@@ -52,6 +52,8 @@ sub psgi_app ($) {
   };
 } # psgi_app
 
+my $ProcessTimeout = 60; # XXX 60*60;
+
 sub main ($$$) {
   my ($class, $app, $db) = @_;
   my $path = $app->path_segments;
@@ -73,25 +75,12 @@ sub main ($$$) {
       return $app->send_error (405)
           unless $app->http->request_method eq 'POST';
       # XXX CSRF
-      return $db->select ('process', {
+      return $db->insert ('process_queue', [{
         process_id => Dongry::Type->serialize ('text', $path->[1]),
-      })->then (sub {
-        my $data = $_[0]->first;
-        return $app->send_error (404) unless defined $data;
-        my $rule = Dongry::Type->parse ('json', $data->{data});
-        # XXX validate $rule
-        $app->http->set_response_header
-            ('Content-Type', 'text/plain; charset=utf-8');
-        my $act = Straw::Action->new_from_db ($db);
-        $act->onlog (sub {
-          $app->http->send_response_body_as_text ("$_[1]\n");
-        });
-        return $act->steps ($rule->{steps})->catch (sub {
-          $app->http->send_response_body_as_text ("Error: $_[0]\n");
-        })->then (sub {
-          $app->http->send_response_body_as_text ("Done\n");
-          $app->http->close_response_body;
-        });
+        run_after => 0,
+        running_since => 0,
+      }], duplicate => 'ignore')->then (sub {
+        return $class->send_json ($app, {});
       });
     }
 
@@ -150,6 +139,9 @@ sub main ($$$) {
           data => $db->bare_sql_fragment ('VALUES(data)'),
           updated => $db->bare_sql_fragment ('VALUES(updated)'),
         })->then (sub {
+          my $act = Straw::Action->new_from_db ($db);
+          return $act->update_subscriptions ($path->[1], $data);
+        })->then (sub {
           return $class->send_json ($app, {});
         });
       } else {
@@ -167,6 +159,77 @@ sub main ($$$) {
       }
     }
   }
+
+  if (@$path == 1 and $path->[0] eq 'run') {
+    unless ($app->http->request_method eq 'POST') {
+      return $app->send_html (q{
+        <!DOCTYPE HTML>
+        <title>Run</title>
+        <form method=post action=/run target=result>
+          <p><button type=submit>Run</button>
+        </form>
+        <p><iframe name=result style="width:100%;height:30em"></iframe>
+      });
+    }
+    # XXX CSRF
+
+    use Time::HiRes qw(time);
+    my $time = time;
+    my $p = Promise->resolve;
+    return $db->update ('process_queue', {
+      running_since => $time,
+    }, where => {
+      run_after => {'<=' => $time},
+      running_since => 0,
+    }, limit => 10, order => ['run_after', 'asc'])->then (sub {
+      return $db->select ('process_queue', {
+        running_since => $time,
+      }, fields => ['process_id']);
+    })->then (sub {
+      $app->http->set_response_header
+          ('Content-Type', 'text/plain; charset=utf-8');
+
+      my @process_id = map { $_->{process_id} } @{$_[0]->all};
+      return unless @process_id;
+      for my $process_id (@process_id) {
+        # XXX loop detection
+        $p = $p->then (sub {
+          $app->http->send_response_body_as_text ("Process |$process_id|...\n");
+          return $db->select ('process', {
+            process_id => Dongry::Type->serialize ('text', $process_id),
+          })->then (sub {
+            my $data = $_[0]->first;
+            unless (defined $data) {
+              $app->http->send_response_body_as_text ("Process not found\n");
+              return;
+            }
+            my $rule = Dongry::Type->parse ('json', $data->{data});
+            my $act = Straw::Action->new_from_db ($db);
+            $act->onlog (sub {
+              $app->http->send_response_body_as_text ("$_[1]\n");
+            });
+            return $act->run ($process_id, $rule)->catch (sub {
+              $app->http->send_response_body_as_text ("Error: $_[0]\n");
+            })->then (sub {
+              $app->http->send_response_body_as_text ("Done\n");
+            });
+          })->then (sub {
+            return $db->delete ('process_queue', {
+              process_id => Dongry::Type->serialize ('text', $process_id),
+            });
+          });
+        }); # $p
+      } # $process_id
+    })->then (sub {
+      return $db->delete ('process_queue', {
+        running_since => {'<', time - $ProcessTimeout, '!=' => 0},
+      })->then (sub {
+        return $p;
+      })->then (sub {
+        $app->http->close_response_body;
+      });
+    });
+  } # /run
 
   return $app->send_error (404);
 } # main

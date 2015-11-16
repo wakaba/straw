@@ -8,6 +8,7 @@ use Web::DOM::Document;
 use Web::HTML::Parser;
 use Web::XML::Parser;
 
+#XXX
 $Straw::Step->{url_to_httpres} = {
   in_type => 'URL',
   code => sub {

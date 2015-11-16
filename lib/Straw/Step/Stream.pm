@@ -30,7 +30,10 @@ $Straw::Step->{save_stream} = {
         timestamp => $timestamp,
         updated => $updated,
       };
-    } reverse @{$in->{items}}], duplicate => 'replace')->then (sub { return $in });
+    } reverse @{$in->{items}}], duplicate => 'replace')->then (sub {
+      $self->touched_stream_ids->{$stream_id} = 1;
+      return $in;
+    });
   },
 }; # save_stream
 
