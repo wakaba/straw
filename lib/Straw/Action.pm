@@ -38,7 +38,9 @@ sub run ($$$$) {
 
   if (defined $rule->{steps} and ref $rule->{steps} eq 'ARRAY') {
     $p = $p->then (sub {
-      return $self->steps ($stream_id, $rule, $fetch_key);
+      return $self->load_for_stream ($stream_id, $rule);
+    })->then (sub {
+      return $self->steps ($stream_id, $rule, $fetch_key, $_[0]);
     });
   }
 
@@ -56,22 +58,61 @@ sub run ($$$$) {
   return $p;
 } # run
 
-sub steps ($$$$) {
-  my ($self, $stream_id, $rule, $fetch_key) = @_;
+sub load_for_export ($$) {
+  my ($self, $stream_id) = @_;
+  return $self->db->select ('stream_item', {
+    stream_id => Dongry::Type->serialize ('text', $stream_id),
+  }, order => ['timestamp', 'DESC'], limit => 1000)->then (sub { # XXXpaging
+    my $out = {type => 'Stream', items => []};
+    for (@{$_[0]->all}) {
+      my $data = Dongry::Type->parse ('json', $_->{data});
+      push @{$out->{items}}, $data;
+    }
+    return $out;
+  });
+} # load_for_export
+
+sub load_for_stream ($$$) {
+  my ($self, $stream_id, $rule) = @_;
+
+  return Promise->resolve ({type => 'Empty'})
+      unless defined $rule->{input_stream_id};
+
+  my $out = {type => 'Stream', items => []};
+  return Promise->resolve->then (sub {
+    return $self->db->select ('stream_subscription', {
+      src_stream_id => Dongry::Type->serialize ('text', $rule->{input_stream_id}),
+      dst_stream_id => Dongry::Type->serialize ('text', $stream_id),
+    }, fields => ['ref']);
+  })->then (sub {
+    my $data = defined $_[0] ? $_[0]->first : undef;
+    my $ref = defined $data ? $data->{ref} || 0 : 0;
+    $self->onlog->($self, "ref=$ref");
+    return $self->db->select ('stream_item', {
+      stream_id => Dongry::Type->serialize ('text', $rule->{input_stream_id}),
+      updated => {'>', $ref},
+    }, order => ['updated', 'ASC'], limit => 10);
+  })->then (sub {
+    for (@{$_[0]->all}) {
+      my $data = Dongry::Type->parse ('json', $_->{data});
+      push @{$out->{items}}, $data;
+      $self->{loaded_stream_updated} = $_->{updated};
+    }
+  })->then (sub {
+    return $out;
+  });
+} # load_for_stream
+
+sub steps ($$$$$) {
+  my ($self, $stream_id, $rule, $fetch_key, $input) = @_;
   die "Bad |steps|" unless defined $rule->{steps} and ref $rule->{steps} eq 'ARRAY';
   my @step = @{$rule->{steps}};
-  my $input = {type => 'Empty'};
-
-  unshift @step, {name => 'load_stream',
-                  stream_id => $rule->{input_stream_id}}
-      if defined $rule->{input_stream_id};
 
   unshift @step, {name => 'load_fetch_result',
                   key => $fetch_key}
       if defined $rule->{fetch} and defined $fetch_key;
 
-  push @step, {name => 'save_stream', stream_id => $stream_id}
-      unless $rule->{no_save}; # XXX internal
+  push @step, {name => 'save_stream', stream_id => $stream_id};
   my $p = Promise->resolve ($input);
   my $log = $self->onlog;
   for my $step (@step) {
@@ -135,8 +176,10 @@ sub update_subscriptions ($$$) {
       return $db->insert ('stream_subscription', [{
         src_stream_id => Dongry::Type->serialize ('text', $input_id),
         dst_stream_id => Dongry::Type->serialize ('text', $dst_stream_id),
+        ref => $self->{loaded_stream_updated} || 0,
         expires => $expires,
       }], duplicate => {
+        ref => $db->bare_sql_fragment ('GREATEST(VALUES(ref),ref)'),
         expires => $db->bare_sql_fragment ('GREATEST(VALUES(expires),expires)'),
       });
     });

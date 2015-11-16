@@ -25,6 +25,7 @@ create table if not exists `stream_item` (
 create table if not exists `stream_subscription` (
   `src_stream_id` bigint unsigned not null,
   `dst_stream_id` bigint unsigned not null,
+  `ref` double not null default 0,
   `expires` double not null,
   primary key (`src_stream_id`, `dst_stream_id`),
   key (`dst_stream_id`),

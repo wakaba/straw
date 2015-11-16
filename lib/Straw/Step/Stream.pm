@@ -37,25 +37,6 @@ $Straw::Step->{save_stream} = {
   },
 }; # save_stream
 
-# XXX internal
-$Straw::Step->{load_stream} = {
-  in_type => 'Empty',
-  code => sub {
-    my ($self, $step, $in) = @_;
-    my $out = {type => 'Stream', items => []};
-    return $self->db->select ('stream_item', {
-      stream_id => Dongry::Type->serialize ('text', $step->{stream_id}),
-      # XXX paging
-    }, order => ['timestamp', 'DESC'])->then (sub {
-      for (@{$_[0]->all}) {
-        push @{$out->{items}}, Dongry::Type->parse ('json', $_->{data});
-      }
-    })->then (sub {
-      return $out;
-    });
-  },
-}; # load_stream
-
 $Straw::Step->{dump_stream} = {
   in_type => 'Stream',
   code => sub {

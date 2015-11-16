@@ -62,7 +62,7 @@ sub main ($$$) {
     if (@$path == 3 and $path->[2] eq 'items') {
       # /stream/{stream_id}/items
       my $act = Straw::Action->new_from_db ($db);
-      return $act->steps ($path->[1], {steps => [{name => 'load_stream', stream_id => $path->[1]}], no_save => 1})->then (sub {
+      return $act->load_for_export ($path->[1])->then (sub {
         return $class->send_json ($app, $_[0]);
       });
     }
