@@ -46,7 +46,7 @@ sub psgi_app ($) {
         return $db->disconnect;
       }, sub {
         my $e = $_[0];
-        return $db->disconnect->then (sub { return $e }, sub { return $e });
+        return $db->disconnect->then (sub { die $e }, sub { die $e });
       });
     });
   };
@@ -58,35 +58,31 @@ sub main ($$$) {
   my ($class, $app, $db) = @_;
   my $path = $app->path_segments;
 
-  if (@$path == 2 and
+  if (@$path >= 2 and
       $path->[0] eq 'stream' and $path->[1] =~ /\A[0-9]+\z/) {
-    # /stream/{stream_id}
-    my $act = Straw::Action->new_from_db ($db);
-    return $act->steps ([{name => 'load_stream',
-                          input => {type => 'StreamRef',
-                                    stream_id => $path->[1]}}])->then (sub {
-      return $class->send_json ($app, $_[0]);
-    });
-  }
 
-  if (@$path >= 2 and $path->[0] eq 'process' and $path->[1] =~ /\A[0-9]+\z/) {
+    if (@$path == 3 and $path->[2] eq 'items') {
+      # /stream/{stream_id}/items
+      my $act = Straw::Action->new_from_db ($db);
+      return $act->steps ($path->[1], {steps => [{name => 'load_stream', stream_id => $path->[1]}], no_save => 1})->then (sub {
+        return $class->send_json ($app, $_[0]);
+      });
+    }
+
     if (@$path == 3 and $path->[2] eq 'run') {
-      # /process/{process_id}/run
+      # /stream/{stream_id}/run
       return $app->send_error (405)
           unless $app->http->request_method eq 'POST';
       # XXX CSRF
-      return $db->insert ('process_queue', [{
-        process_id => Dongry::Type->serialize ('text', $path->[1]),
-        run_after => 0,
-        running_since => 0,
-      }], duplicate => 'ignore')->then (sub {
+      my $act = Straw::Action->new_from_db ($db);
+      return $act->enqueue_stream_processes ([$path->[1]], 0)->then (sub {
         return $class->send_json ($app, {});
       });
     }
 
     if (@$path == 3 and $path->[2] eq 'edit') {
-      # /process/{process_id}/edit
-      # XXX {process_id} not found
+      # /stream/{stream_id}/edit
+      # XXX {stream_id} not found
       return $app->send_html (q{
         <!DOCTYPE html>
         <title>Edit</title>
@@ -123,15 +119,16 @@ sub main ($$$) {
     }
 
     if (@$path == 3 and $path->[2] eq 'edit.json') {
-      # /process/{process_id}/edit.json
+      # /stream/{stream_id}/edit.json
+      # XXX stream not found
       # XXX access control
       if ($app->http->request_method eq 'POST') {
         # XXX CSRF
         my $data = json_bytes2perl $app->bare_param ('data') // '';
         return $app->send_error (400) unless defined $data;
         my $time = time;
-        return $db->insert ('process', [{
-          process_id => Dongry::Type->serialize ('text', $path->[1]),
+        return $db->insert ('stream_process', [{
+          stream_id => Dongry::Type->serialize ('text', $path->[1]),
           data => Dongry::Type->serialize ('json', $data),
           created => $time,
           updated => $time,
@@ -145,8 +142,8 @@ sub main ($$$) {
           return $class->send_json ($app, {});
         });
       } else {
-        return $db->select ('process', {
-          process_id => Dongry::Type->serialize ('text', $path->[1]),
+        return $db->select ('stream_process', {
+          stream_id => Dongry::Type->serialize ('text', $path->[1]),
         })->then (sub {
           my $data = $_[0]->first;
           if (defined $data) {
@@ -158,7 +155,7 @@ sub main ($$$) {
         });
       }
     }
-  }
+  } # /stream/{stream_id}
 
   if (@$path == 1 and $path->[0] eq 'run') {
     unless ($app->http->request_method eq 'POST') {
@@ -176,31 +173,31 @@ sub main ($$$) {
     use Time::HiRes qw(time);
     my $time = time;
     my $p = Promise->resolve;
-    return $db->update ('process_queue', {
+    return $db->update ('stream_process_queue', {
       running_since => $time,
     }, where => {
       run_after => {'<=' => $time},
       running_since => 0,
     }, limit => 10, order => ['run_after', 'asc'])->then (sub {
-      return $db->select ('process_queue', {
+      return $db->select ('stream_process_queue', {
         running_since => $time,
-      }, fields => ['process_id']);
+      }, fields => ['stream_id']);
     })->then (sub {
       $app->http->set_response_header
           ('Content-Type', 'text/plain; charset=utf-8');
 
-      my @process_id = map { $_->{process_id} } @{$_[0]->all};
+      my @process_id = map { $_->{stream_id} } @{$_[0]->all};
       return unless @process_id;
       for my $process_id (@process_id) {
         # XXX loop detection
         $p = $p->then (sub {
-          $app->http->send_response_body_as_text ("Process |$process_id|...\n");
-          return $db->select ('process', {
-            process_id => Dongry::Type->serialize ('text', $process_id),
+          $app->http->send_response_body_as_text ("Stream |$process_id|...\n");
+          return $db->select ('stream_process', {
+            stream_id => Dongry::Type->serialize ('text', $process_id),
           })->then (sub {
             my $data = $_[0]->first;
             unless (defined $data) {
-              $app->http->send_response_body_as_text ("Process not found\n");
+              $app->http->send_response_body_as_text ("Nothing to do\n");
               return;
             }
             my $rule = Dongry::Type->parse ('json', $data->{data});
@@ -214,14 +211,14 @@ sub main ($$$) {
               $app->http->send_response_body_as_text ("Done\n");
             });
           })->then (sub {
-            return $db->delete ('process_queue', {
-              process_id => Dongry::Type->serialize ('text', $process_id),
+            return $db->delete ('stream_process_queue', {
+              stream_id => Dongry::Type->serialize ('text', $process_id),
             });
           });
         }); # $p
       } # $process_id
     })->then (sub {
-      return $db->delete ('process_queue', {
+      return $db->delete ('stream_process_queue', {
         running_since => {'<', time - $ProcessTimeout, '!=' => 0},
       })->then (sub {
         return $p;

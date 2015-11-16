@@ -31,40 +31,31 @@ $Straw::Step ||= {};
 $Straw::ItemStep ||= {};
 
 sub run ($$$) {
-  my ($self, $process_id, $rule) = @_;
+  my ($self, $stream_id, $rule) = @_;
   my $p = Promise->resolve;
 
+  #XXX
   if (defined $rule->{fetch} and ref $rule->{fetch} eq 'HASH') {
     $p = $p->then (sub {
-      return $self->fetch ($process_id, $rule->{fetch});
+      return $self->fetch ($stream_id, $rule->{fetch});
     });
   }
 
   if (defined $rule->{steps} and ref $rule->{steps} eq 'ARRAY') {
     $p = $p->then (sub {
-      return $self->steps ($rule);
+      return $self->steps ($stream_id, $rule);
     });
   }
 
   $p = $p->then (sub {
-    my $touched = [keys %{$self->touched_stream_ids}];
-    return unless @$touched;
     return $self->db->select ('stream_subscription', {
-      stream_id => {-in => $touched},
-    }, fields => ['process_id'], distinct => 1)->then (sub {
-      my @pid = map { $_->{process_id} } @{$_[0]->all};
-      return unless @pid;
-      my $next = time + 10;
-      return $self->db->insert ('process_queue', [map {
-        +{
-          process_id => $_,
-          run_after => $next,
-          running_since => 0,
-        };
-      } @pid], duplicate => 'ignore');
+      src_stream_id => Dongry::Type->serialize ('text', $stream_id),
+    }, fields => ['dst_stream_id'], distinct => 1)->then (sub {
+      my @pid = map { $_->{dst_stream_id} } @{$_[0]->all};
+      return $self->enqueue_stream_processes (\@pid, 10);
     });
   })->then (sub {
-    return $self->update_subscriptions ($process_id, $rule);
+    return $self->update_subscriptions ($stream_id, $rule);
   });
 
   return $p;
@@ -97,15 +88,16 @@ sub fetch ($$$) {
   });
 } # fetch
 
-sub steps ($$) {
-  my ($self, $rule) = @_;
+sub steps ($$$) {
+  my ($self, $stream_id, $rule) = @_;
   die "Bad |steps|" unless defined $rule->{steps} and ref $rule->{steps} eq 'ARRAY';
   my @step = @{$rule->{steps}};
   my $input = {type => 'Empty'};
-  if (defined $rule->{input_stream_id}) {
-    $input = {type => 'StreamRef', stream_id => $rule->{input_stream_id}};
-    unshift @step, {name => 'load_stream'};
-  }
+  unshift @step, {name => 'load_stream',
+                  stream_id => $rule->{input_stream_id}}
+      if defined $rule->{input_stream_id};
+  push @step, {name => 'save_stream', stream_id => $stream_id}
+      unless $rule->{no_save}; # XXX internal
   my $p = Promise->resolve ($input);
   my $log = $self->onlog;
   for my $step (@step) {
@@ -144,16 +136,29 @@ sub steps ($$) {
   return $p;
 } # steps
 
+sub enqueue_stream_processes ($$$) {
+  my ($self, $stream_ids, $delta) = @_;
+  return Promise->resolve unless @$stream_ids;
+  my $after = time + $delta;
+  return $self->db->insert ('stream_process_queue', [map {
+    +{
+      stream_id => Dongry::Type->serialize ('text', $_),
+      run_after => $after,
+      running_since => 0,
+     };
+   } @$stream_ids], duplicate => 'ignore');
+} # enqueue_stream_process
+
 sub update_subscriptions ($$$) {
-  my ($self, $process_id, $data) = @_;
+  my ($self, $dst_stream_id, $data) = @_;
 
   my $input_id = $data->{input_stream_id};
   return Promise->resolve unless defined $input_id;
 
   my $db = $self->db;
   return $db->insert ('stream_subscription', [{
-    stream_id => Dongry::Type->serialize ('text', $input_id),
-    process_id => Dongry::Type->serialize ('text', $process_id),
+    src_stream_id => Dongry::Type->serialize ('text', $input_id),
+    dst_stream_id => Dongry::Type->serialize ('text', $dst_stream_id),
     expires => time + 60*60*24,
   }], duplicate => {
     expires => $db->bare_sql_fragment ('VALUES(expires)'),

@@ -8,6 +8,7 @@ use Promise;
 use Dongry::Type;
 use Dongry::Type::JSONPS;
 
+# XXX internal
 $Straw::Step->{save_stream} = {
   in_type => 'Stream',
   code => sub {
@@ -31,19 +32,19 @@ $Straw::Step->{save_stream} = {
         updated => $updated,
       };
     } reverse @{$in->{items}}], duplicate => 'replace')->then (sub {
-      $self->touched_stream_ids->{$stream_id} = 1;
       return $in;
     });
   },
 }; # save_stream
 
+# XXX internal
 $Straw::Step->{load_stream} = {
-  in_type => 'StreamRef',
+  in_type => 'Empty',
   code => sub {
     my ($self, $step, $in) = @_;
     my $out = {type => 'Stream', items => []};
     return $self->db->select ('stream_item', {
-      stream_id => Dongry::Type->serialize ('text', $in->{stream_id}),
+      stream_id => Dongry::Type->serialize ('text', $step->{stream_id}),
       # XXX paging
     }, order => ['timestamp', 'DESC'])->then (sub {
       for (@{$_[0]->all}) {
