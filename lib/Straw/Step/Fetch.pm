@@ -26,6 +26,26 @@ $Straw::Step->{url_to_httpres} = {
   },
 }; # url_to_httpres
 
+# XXX internal
+use HTTP::Response;
+$Straw::Step->{load_fetch_result} = {
+  in_type => 'Empty',
+  code => sub {
+    my ($self, $step, $in) = @_;
+    return $self->db->select ('fetch_result', {
+      key => $step->{key},
+    })->then (sub {
+      my $data = $_[0]->first;
+      if (defined $data) {
+        return {type => 'HTTP::Response',
+                res => HTTP::Response->parse ($data->{data})};
+      } else {
+        die "Fetched result for |$step->{key}| not found";
+      }
+    });
+  },
+};
+
 $Straw::Step->{httpres_to_doc} = {
   in_type => 'HTTP::Response',
   code => sub {

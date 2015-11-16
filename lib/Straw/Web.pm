@@ -52,8 +52,6 @@ sub psgi_app ($) {
   };
 } # psgi_app
 
-my $ProcessTimeout = 60; # XXX 60*60;
-
 sub main ($$$) {
   my ($class, $app, $db) = @_;
   my $path = $app->path_segments;
@@ -75,7 +73,11 @@ sub main ($$$) {
           unless $app->http->request_method eq 'POST';
       # XXX CSRF
       my $act = Straw::Action->new_from_db ($db);
-      return $act->enqueue_stream_processes ([$path->[1]], 0)->then (sub {
+      return Promise->resolve->then (sub {
+        #return $act->enqueue_stream_processes ([$path->[1]], 0);
+      })->then (sub {
+        return $act->schedule_fetch_by_stream_id ($path->[1]);
+      })->then (sub {
         return $class->send_json ($app, {});
       });
     }
@@ -170,61 +172,16 @@ sub main ($$$) {
     }
     # XXX CSRF
 
-    use Time::HiRes qw(time);
-    my $time = time;
-    my $p = Promise->resolve;
-    return $db->update ('stream_process_queue', {
-      running_since => $time,
-    }, where => {
-      run_after => {'<=' => $time},
-      running_since => 0,
-    }, limit => 10, order => ['run_after', 'asc'])->then (sub {
-      return $db->select ('stream_process_queue', {
-        running_since => $time,
-      }, fields => ['stream_id']);
+    $app->http->set_response_header
+        ('Content-Type', 'text/plain; charset=utf-8');
+    my $act = Straw::Action->new_from_db ($db);
+    $act->onlog (sub {
+      $app->http->send_response_body_as_text ("$_[1]\n");
+    });
+    return $act->run_fetches->then (sub {
+      return $act->run_stream_processes;
     })->then (sub {
-      $app->http->set_response_header
-          ('Content-Type', 'text/plain; charset=utf-8');
-
-      my @process_id = map { $_->{stream_id} } @{$_[0]->all};
-      return unless @process_id;
-      for my $process_id (@process_id) {
-        # XXX loop detection
-        $p = $p->then (sub {
-          $app->http->send_response_body_as_text ("Stream |$process_id|...\n");
-          return $db->select ('stream_process', {
-            stream_id => Dongry::Type->serialize ('text', $process_id),
-          })->then (sub {
-            my $data = $_[0]->first;
-            unless (defined $data) {
-              $app->http->send_response_body_as_text ("Nothing to do\n");
-              return;
-            }
-            my $rule = Dongry::Type->parse ('json', $data->{data});
-            my $act = Straw::Action->new_from_db ($db);
-            $act->onlog (sub {
-              $app->http->send_response_body_as_text ("$_[1]\n");
-            });
-            return $act->run ($process_id, $rule)->catch (sub {
-              $app->http->send_response_body_as_text ("Error: $_[0]\n");
-            })->then (sub {
-              $app->http->send_response_body_as_text ("Done\n");
-            });
-          })->then (sub {
-            return $db->delete ('stream_process_queue', {
-              stream_id => Dongry::Type->serialize ('text', $process_id),
-            });
-          });
-        }); # $p
-      } # $process_id
-    })->then (sub {
-      return $db->delete ('stream_process_queue', {
-        running_since => {'<', time - $ProcessTimeout, '!=' => 0},
-      })->then (sub {
-        return $p;
-      })->then (sub {
-        $app->http->close_response_body;
-      });
+      $app->http->close_response_body;
     });
   } # /run
 

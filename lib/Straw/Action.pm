@@ -2,6 +2,10 @@ package Straw::Action;
 use strict;
 use warnings;
 use Promise;
+use Time::HiRes qw(time);
+use Digest::SHA qw(sha1_hex);
+use Web::UserAgent::Functions qw(http_get);
+use JSON::PS;
 use Straw::Step::Fetch;
 use Straw::Step::Stream;
 use Straw::Step::RSS;
@@ -23,27 +27,18 @@ sub onlog ($;$) {
   return $_[0]->{onlog} ||= sub { };
 } # onlog
 
-sub touched_stream_ids ($) {
-  return $_[0]->{touched_stream_ids} ||= {};
-} # touched_stream_ids
-
 $Straw::Step ||= {};
 $Straw::ItemStep ||= {};
 
-sub run ($$$) {
-  my ($self, $stream_id, $rule) = @_;
-  my $p = Promise->resolve;
+my $SubscriptionDelay = 3; # XXX
 
-  #XXX
-  if (defined $rule->{fetch} and ref $rule->{fetch} eq 'HASH') {
-    $p = $p->then (sub {
-      return $self->fetch ($stream_id, $rule->{fetch});
-    });
-  }
+sub run ($$$$) {
+  my ($self, $stream_id, $rule, $fetch_key) = @_;
+  my $p = Promise->resolve;
 
   if (defined $rule->{steps} and ref $rule->{steps} eq 'ARRAY') {
     $p = $p->then (sub {
-      return $self->steps ($stream_id, $rule);
+      return $self->steps ($stream_id, $rule, $fetch_key);
     });
   }
 
@@ -52,7 +47,7 @@ sub run ($$$) {
       src_stream_id => Dongry::Type->serialize ('text', $stream_id),
     }, fields => ['dst_stream_id'], distinct => 1)->then (sub {
       my @pid = map { $_->{dst_stream_id} } @{$_[0]->all};
-      return $self->enqueue_stream_processes (\@pid, 10);
+      return $self->enqueue_stream_processes (\@pid, $SubscriptionDelay);
     });
   })->then (sub {
     return $self->update_subscriptions ($stream_id, $rule);
@@ -61,41 +56,20 @@ sub run ($$$) {
   return $p;
 } # run
 
-use Web::UserAgent::Functions qw(http_get);
-sub fetch ($$$) {
-  my ($self, $process_id, $rule) = @_;
-
-  return Promise->new (sub {
-    my ($ok, $ng) = @_;
-    # XXX redirect
-    http_get
-        url => $rule->{url},
-        anyevent => 1,
-        cb => sub {
-          $ok->($_[1]);
-          # XXX 5xx, network error
-        };
-  })->then (sub {
-    my $db = $self->db;
-    return $db->insert ('fetch_result', [{
-      process_id => Dongry::Type->serialize ('text', $process_id),
-      data => $_[0]->as_string,
-      timestamp => time,
-    }], duplicate => {
-      data => $db->bare_sql_fragment ('VALUES(data)'),
-      timestamp => $db->bare_sql_fragment ('VALUES(timestamp)'),
-    });
-  });
-} # fetch
-
-sub steps ($$$) {
-  my ($self, $stream_id, $rule) = @_;
+sub steps ($$$$) {
+  my ($self, $stream_id, $rule, $fetch_key) = @_;
   die "Bad |steps|" unless defined $rule->{steps} and ref $rule->{steps} eq 'ARRAY';
   my @step = @{$rule->{steps}};
   my $input = {type => 'Empty'};
+
   unshift @step, {name => 'load_stream',
                   stream_id => $rule->{input_stream_id}}
       if defined $rule->{input_stream_id};
+
+  unshift @step, {name => 'load_fetch_result',
+                  key => $fetch_key}
+      if defined $rule->{fetch} and defined $fetch_key;
+
   push @step, {name => 'save_stream', stream_id => $stream_id}
       unless $rule->{no_save}; # XXX internal
   my $p = Promise->resolve ($input);
@@ -151,18 +125,213 @@ sub enqueue_stream_processes ($$$) {
 
 sub update_subscriptions ($$$) {
   my ($self, $dst_stream_id, $data) = @_;
+  my $p = Promise->resolve;
+  my $db = $self->db;
+  my $expires = time + 60*60*24;
 
   my $input_id = $data->{input_stream_id};
-  return Promise->resolve unless defined $input_id;
+  if (defined $input_id) {
+    $p = $p->then (sub {
+      return $db->insert ('stream_subscription', [{
+        src_stream_id => Dongry::Type->serialize ('text', $input_id),
+        dst_stream_id => Dongry::Type->serialize ('text', $dst_stream_id),
+        expires => $expires,
+      }], duplicate => {
+        expires => $db->bare_sql_fragment ('GREATEST(VALUES(expires),expires)'),
+      });
+    });
+  }
 
-  my $db = $self->db;
-  return $db->insert ('stream_subscription', [{
-    src_stream_id => Dongry::Type->serialize ('text', $input_id),
-    dst_stream_id => Dongry::Type->serialize ('text', $dst_stream_id),
-    expires => time + 60*60*24,
-  }], duplicate => {
-    expires => $db->bare_sql_fragment ('VALUES(expires)'),
+  my $key;
+  my $fetch = $data->{fetch};
+  if (defined $fetch and ref $fetch eq 'HASH' and
+      defined $fetch->{url}) {
+    $p = $p->then (sub {
+      my $fetch_data = perl2json_bytes_for_record $fetch;
+      $key = sha1_hex $fetch_data;
+      $key .= sha1_hex +Dongry::Type->serialize ('text', $fetch->{url});
+      return $db->insert ('fetch', [{
+        key => $key,
+        data => $fetch_data,
+        expires => $expires,
+      }], duplicate => {
+        expires => $db->bare_sql_fragment ('GREATEST(VALUES(expires),expires)'),
+      })->then (sub {
+        return $db->insert ('fetch_subscription', [{
+          key => $key,
+          dst_stream_id => Dongry::Type->serialize ('text', $dst_stream_id),
+          expires => $expires,
+        }], duplicate => {
+          expires => $db->bare_sql_fragment ('GREATEST(VALUES(expires),expires)'),
+        });
+      });
+    });
+  }
+  $p = $p->then (sub {
+    return $db->update ('stream_process', {
+      fetch_key => $key,
+    }, where => {
+      stream_id => Dongry::Type->serialize ('text', $dst_stream_id),
+    });
   });
+
+  return $p;
 } # update_subscriptions
+
+my $ProcessTimeout = 60; # XXX 60*60;
+
+sub run_stream_processes ($) {
+  my $self = $_[0];
+  my $p = Promise->resolve;
+  my $db = $self->db;
+  my $time = time;
+  return $db->update ('stream_process_queue', {
+    running_since => $time,
+  }, where => {
+    run_after => {'<=' => $time},
+    running_since => 0,
+  }, limit => 10, order => ['run_after', 'asc'])->then (sub {
+    return $db->select ('stream_process_queue', {
+      running_since => $time,
+    }, fields => ['stream_id']);
+  })->then (sub {
+    my @process_id = map { $_->{stream_id} } @{$_[0]->all};
+    return unless @process_id;
+    for my $process_id (@process_id) {
+      # XXX loop detection
+      $p = $p->then (sub {
+        $self->onlog->($self, "Stream |$process_id|...");
+        return $db->select ('stream_process', {
+          stream_id => Dongry::Type->serialize ('text', $process_id),
+        })->then (sub {
+          my $data = $_[0]->first;
+          unless (defined $data) {
+            $self->onlog->($self, "Nothing to do");
+            return;
+          }
+          my $rule = Dongry::Type->parse ('json', $data->{data});
+          return $self->run ($process_id, $rule, $data->{fetch_key})->catch (sub {
+            $self->onlog->($self, "Error: $_[0]");
+          })->then (sub {
+            $self->onlog->($self, "Done");
+          });
+        })->then (sub {
+          return $db->delete ('stream_process_queue', {
+            stream_id => Dongry::Type->serialize ('text', $process_id),
+          });
+        });
+      }); # $p
+    } # $process_id
+    return undef;
+  })->then (sub {
+    return $db->delete ('stream_process_queue', {
+      running_since => {'<', time - $ProcessTimeout, '!=' => 0},
+    })->then (sub {
+      return $p;
+    });
+  });
+} # run_stream_processes
+
+sub schedule_fetch_by_stream_id ($$) {
+  my ($self, $stream_id) = @_;
+  my $db = $self->db;
+  return $db->select ('stream_process', {
+    stream_id => Dongry::Type->serialize ('text', $stream_id),
+  }, fields => ['fetch_key'])->then (sub {
+    my $data = $_[0]->first;
+    return unless defined $data;
+    my $key = $data->{fetch_key};
+    return unless defined $key;
+    return $db->insert ('fetch_queue', [{
+      key => $key,
+      run_after => time,
+      running_since => 0,
+    }], duplicate => 'ignore');
+  });
+} # schedule_fetch_by_stream_id
+
+sub fetch ($$$$) {
+  my ($self, $key, $rule, $expires) = @_;
+  return Promise->new (sub {
+    my ($ok, $ng) = @_;
+    # XXX redirect
+    http_get
+        url => $rule->{url},
+        anyevent => 1,
+        cb => sub {
+          $ok->($_[1]);
+          # XXX 5xx, network error
+        };
+  })->then (sub {
+    my $db = $self->db;
+    return $db->insert ('fetch_result', [{
+      key => Dongry::Type->serialize ('text', $key),
+      data => $_[0]->as_string,
+      expires => $expires,
+    }], duplicate => {
+      data => $db->bare_sql_fragment ('VALUES(data)'),
+      expires => $db->bare_sql_fragment ('GREATEST(VALUES(expires),expires)'),
+    });
+  })->then (sub {
+    return $self->db->select ('fetch_subscription', {
+      key => Dongry::Type->serialize ('text', $key),
+    }, fields => ['dst_stream_id'], distinct => 1)->then (sub {
+      my @pid = map { $_->{dst_stream_id} } @{$_[0]->all};
+      return $self->enqueue_stream_processes (\@pid, $SubscriptionDelay);
+    });
+  });
+} # fetch
+
+sub run_fetches ($) {
+  my $self = $_[0];
+  my $p = Promise->resolve;
+  my $db = $self->db;
+  my $time = time;
+  return $db->update ('fetch_queue', {
+    running_since => $time,
+  }, where => {
+    run_after => {'<=' => $time},
+    running_since => 0,
+  }, limit => 10, order => ['run_after', 'asc'])->then (sub {
+    return $db->select ('fetch_queue', {
+      running_since => $time,
+    }, fields => ['key']);
+  })->then (sub {
+    my @process_id = map { $_->{key} } @{$_[0]->all};
+    return unless @process_id;
+    for my $process_id (@process_id) {
+      # XXX loop detection
+      $p = $p->then (sub {
+        $self->onlog->($self, "Fetch |$process_id|...");
+        return $db->select ('fetch', {
+          key => Dongry::Type->serialize ('text', $process_id),
+        })->then (sub {
+          my $data = $_[0]->first;
+          unless (defined $data) {
+            $self->onlog->($self, "Nothing to do");
+            return;
+          }
+          my $rule = Dongry::Type->parse ('json', $data->{data});
+          return $self->fetch ($process_id, $rule, $data->{expires})->catch (sub {
+            $self->onlog->($self, "Error: $_[0]");
+          })->then (sub {
+            $self->onlog->($self, "Done");
+          });
+        })->then (sub {
+          return $db->delete ('fetch_queue', {
+            key => Dongry::Type->serialize ('text', $process_id),
+          });
+        });
+      }); # $p
+    } # $process_id
+    return undef;
+  })->then (sub {
+    return $db->delete ('fetch_queue', {
+      running_since => {'<', time - $ProcessTimeout, '!=' => 0},
+    })->then (sub {
+      return $p;
+    });
+  });
+} # run_fetches
 
 1;
