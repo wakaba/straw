@@ -10,9 +10,9 @@ use Dongry::Database;
 use Dongry::Type;
 use Dongry::Type::JSONPS;
 use Straw::Action;
+use Straw::Fetch;
 
-my $config_path = path (__FILE__)->parent->parent->parent->child
-    ('local/local-server/config/config.json'); # XXX
+my $config_path = path ($ENV{APP_CONFIG} // die "Bad |APP_CONFIG|");
 my $config = json_bytes2perl $config_path->slurp;
 
 sub psgi_app ($) {
@@ -55,6 +55,61 @@ sub psgi_app ($) {
 sub main ($$$) {
   my ($class, $app, $db) = @_;
   my $path = $app->path_segments;
+
+  if (@$path == 2 and
+      $path->[0] eq 'source' and $path->[1] =~ /\A[0-9]+\z/) {
+    # /source/{source_id}
+    my $fetch = Straw::Fetch->new_from_db ($db);
+    if ($app->http->request_method eq 'POST') {
+      # XXX CSRF
+      return $fetch->save_fetch_source
+          ($path->[1],
+           (json_bytes2perl $app->bare_param ('fetch_options') // ''),
+           (json_bytes2perl $app->bare_param ('schedule_options') // ''))->then (sub {
+        return $class->send_json ($app, {});
+      }, sub {
+        if (ref $_[0] eq 'HASH') {
+          return $app->throw_error
+              ($_[0]->{status}, reason_phrase => $_[0]->{reason});
+        } else {
+          die $_[0];
+        }
+      });
+    } else { # GET
+      return $fetch->load_fetch_source_by_id ($path->[1])->then (sub {
+        my $source = $_[0];
+        if (defined $source) {
+          $source->{fetch_options} = json_bytes2perl $source->{fetch_options};
+          $source->{schedule_options} = json_bytes2perl $source->{schedule_options};
+          return $class->send_json
+              ($app, {type => 'fetch_source', fetch => $source});
+        } else {
+          return $app->send_error (404, reason_phrase => 'Source not found');
+        }
+      });
+    }
+  } elsif (@$path == 1 and $path->[0] eq 'source') {
+    # /source
+    $app->requires_request_method ({POST => 1});
+    # XXX CSRF
+    my $type = $app->bare_param ('type') // '';
+    return $app->throw_error (400, reason_phrase => 'Bad |type|')
+        unless $type eq 'fetch_source';
+    my $fetch = Straw::Fetch->new_from_db ($db);
+    return $fetch->save_fetch_source
+        (undef,
+         (json_bytes2perl $app->bare_param ('fetch_options') // ''),
+         (json_bytes2perl $app->bare_param ('schedule_options') // ''))->then (sub {
+      return $class->send_json ($app, {source_id => $_[0]});
+    }, sub {
+      if (ref $_[0] eq 'HASH') {
+        return $app->throw_error
+            ($_[0]->{status}, reason_phrase => $_[0]->{reason});
+      } else {
+        die $_[0];
+      }
+    });
+  }
 
   if (@$path >= 2 and
       $path->[0] eq 'stream' and $path->[1] =~ /\A[0-9]+\z/) {
