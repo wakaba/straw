@@ -12,6 +12,7 @@ use Dongry::Type;
 use Dongry::Type::JSONPS;
 use Straw::Action;
 use Straw::Fetch;
+use Straw::Stream;
 use Straw::Worker;
 
 my $config_path = path ($ENV{APP_CONFIG} // die "Bad |APP_CONFIG|");
@@ -181,7 +182,31 @@ sub main ($$$) {
 
   if (@$path >= 2 and
       $path->[0] eq 'stream' and $path->[1] =~ /\A[0-9]+\z/) {
+    if (@$path == 2) {
+      # /stream/{stream_id}
+      my $stream = Straw::Stream->new_from_db ($db);
+      return $stream->load_stream_by_id ($path->[1])->then (sub {
+        my $data = $_[0];
+        return $app->throw_error (404, reason_phrase => 'Stream not found')
+            unless defined $data;
+        return $class->send_json ($app, $data);
+      });
+    }
+  } elsif (@$path == 1 and $path->[0] eq 'stream') {
+    # /stream
+    $app->requires_request_method ({POST => 1});
+    # XXX CSRF
+    my $stream = Straw::Stream->new_from_db ($db);
+    return $stream->save_stream->then (sub {
+      my $stream_id = $_[0];
+      return $class->send_json ($app, {stream_id => $stream_id});
+    });
+  }
 
+
+  #XXX
+  if (@$path >= 2 and
+      $path->[0] eq 'stream' and $path->[1] =~ /\A[0-9]+\z/) {
     if (@$path == 3 and $path->[2] eq 'items') {
       # /stream/{stream_id}/items
       my $act = Straw::Action->new_from_db ($db);
