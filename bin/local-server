@@ -41,10 +41,10 @@ my $db_dir = $root_path->child ('local/local-server/mysql');
 $db_dir->mkpath;
 $mysqld->set_db_dir ($db_dir);
 $mysqld->start->then (sub {
-  my $dsn = $mysqld->get_dsn_string (dbname => 'straw_devel');
+  my $dsn = $mysqld->get_dsn_string (dbname => 'straw_devel2');
   return Promise->all ([
     db_sqls->then (sub {
-      return $mysqld->create_db_and_execute_sqls (straw_devel => $_[0]);
+      return $mysqld->create_db_and_execute_sqls (straw_devel2 => $_[0]);
     }),
     $config_file->write_byte_string (perl2json_bytes {
       alt_dsns => {master => {straw => $dsn}},
@@ -57,7 +57,7 @@ $mysqld->start->then (sub {
   $plackup->set_option ('--app' => $root_path->child ('bin/server.psgi'));
   $plackup->set_option ('--host' => 0);
   $plackup->set_option ('--port' => 5150);
-  $plackup->set_server ('Twiggy::Prefork');
+  $plackup->set_server ('Twiggy');
   return $plackup->start;
 })->catch (sub {
   my $error = $_[0];

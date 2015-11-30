@@ -31,6 +31,7 @@ sub import ($;@) {
 
 my $MySQLServer;
 my $HTTPServer;
+my $RemoteServer;
 
 my $root_path = path (__FILE__)->parent->parent->parent->absolute;
 
@@ -42,14 +43,52 @@ sub db_sqls () {
   });
 } # db_sqls
 
+sub remote_server (;$) {
+  my $web_host = $_[0];
+  my $cv = AE::cv;
+  $RemoteServer = Promised::Plackup->new;
+  $RemoteServer->set_option ('--server' => 'Twiggy');
+  $RemoteServer->plackup ($root_path->child ('plackup'));
+  $RemoteServer->set_option ('--host' => $web_host) if defined $web_host;
+  $RemoteServer->set_option ('-e' => q{
+    use strict;
+    use warnings;
+    use Wanage::HTTP;
+    use Warabe::App;
+
+    return sub {
+      my $http = Wanage::HTTP->new_from_psgi_env ($_[0]);
+      my $app = Warabe::App->new_from_http ($http);
+      return $app->execute_by_promise (sub {
+        my $path = $app->path_segments;
+
+        if ($path->[0] eq '1') {
+          return $app->send_plain_text ('foo');
+        }
+
+        return $app->send_error (404);
+      });
+    };
+  });
+  return $RemoteServer;
+} # remote_server
+
+push @EXPORT, qw(remote_url);
+sub remote_url ($) {
+  my $host = $RemoteServer->get_host;
+  return qq<http://$host$_[0]>;
+} # remote_url
+
 push @EXPORT, qw(web_server);
 sub web_server (;$) {
   my $web_host = $_[0];
   my $cv = AE::cv;
   my $bearer = rand;
   $MySQLServer = Promised::Mysqld->new;
+  remote_server;
   Promise->all ([
     $MySQLServer->start,
+    $RemoteServer->start,
   ])->then (sub {
     my $dsn = $MySQLServer->get_dsn_string (dbname => 'straw_test');
     $MySQLServer->{_temp} = my $temp = File::Temp->newdir;
@@ -57,7 +96,7 @@ sub web_server (;$) {
     my $temp_path = $temp_dir_path->child ('file');
     my $temp_file = Promised::File->new_from_path ($temp_path);
     $HTTPServer = Promised::Plackup->new;
-    $HTTPServer->set_option ('--server' => 'Twiggy::Prefork');
+    $HTTPServer->set_option ('--server' => 'Twiggy');
     $HTTPServer->envs->{APP_CONFIG} = $temp_path;
     return Promise->all ([
       db_sqls->then (sub {
@@ -83,7 +122,7 @@ push @EXPORT, qw(stop_web_server);
 sub stop_web_server () {
   my $cv = AE::cv;
   $cv->begin;
-  for ($HTTPServer, $MySQLServer) {
+  for ($HTTPServer, $MySQLServer, $RemoteServer) {
     next unless defined $_;
     $cv->begin;
     $_->stop->then (sub { $cv->end });
@@ -134,13 +173,42 @@ sub create_source ($%) {
   return POST ($c, q</source>, {
     type => $args{type},
     fetch_options => (perl2json_bytes $args{fetch}),
-    schedule_options => (perl2json_bytes $args{schedule} || {}),
+    schedule_options => (perl2json_bytes ($args{schedule} || {})),
   })->then (sub {
     my $res = $_[0];
     die "create_source failed" unless $res->code == 200;
     return json_bytes2perl $res->content;
   });
 } # create_source
+
+sub wait_seconds ($) {
+  my $seconds = $_[0];
+  return Promise->new (sub {
+    my $ok = $_[0];
+    my $timer; $timer = AE::timer $seconds, 0, sub {
+      $ok->();
+      undef $timer;
+    };
+  });
+} # wait_seconds
+
+push @EXPORT, qw(wait_drain);
+sub wait_drain ($) {
+  my $c = $_[0];
+  my $check = sub {
+    return POST ($c, q</test/queue>, {})->then (sub {
+      my $json = json_bytes2perl $_[0]->content;
+      return $json->{empty};
+    });
+  }; # $check
+
+  my $try; $try = sub {
+    return $check->()->then (sub {
+      return wait_seconds (1)->then ($try) unless $_[0];
+    });
+  }; # $try
+  return $try->()->then (sub { undef $try });
+} # wait_drain
 
 1;
 

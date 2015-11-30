@@ -3,6 +3,7 @@ use strict;
 use warnings;
 use Path::Tiny;
 use Promise;
+use Promised::Command::Signals;
 use JSON::PS;
 use Wanage::HTTP;
 use Warabe::App;
@@ -11,12 +12,43 @@ use Dongry::Type;
 use Dongry::Type::JSONPS;
 use Straw::Action;
 use Straw::Fetch;
+use Straw::Worker;
 
 my $config_path = path ($ENV{APP_CONFIG} // die "Bad |APP_CONFIG|");
 my $config = json_bytes2perl $config_path->slurp;
 
+my $DBSources = {master => {dsn => Dongry::Type->serialize ('text', $config->{alt_dsns}->{master}->{straw}),
+                            writable => 1, anyevent => 1},
+                 default => {dsn => Dongry::Type->serialize ('text', $config->{dsns}->{straw}),
+                             anyevent => 1}};
+
+my $Worker;
+my $Signals = {};
+
 sub psgi_app ($) {
   my ($class) = @_;
+
+  {
+    $Worker = Straw::Worker->new_from_db_sources ($DBSources);
+    $Worker->run;
+
+    $Signals->{TERM} = Promised::Command::Signals->add_handler (TERM => sub {
+      $Worker->terminate;
+      undef $Worker;
+      %$Signals = ();
+    });
+    $Signals->{INT} = Promised::Command::Signals->add_handler (INT => sub {
+      $Worker->terminate;
+      undef $Worker;
+      %$Signals = ();
+    });
+    $Signals->{QUIT} = Promised::Command::Signals->add_handler (QUIT => sub {
+      $Worker->terminate;
+      undef $Worker;
+      %$Signals = ();
+    });
+  }
+
   return sub {
     ## This is necessary so that different forked siblings have
     ## different seeds.
@@ -33,11 +65,7 @@ sub psgi_app ($) {
     warn sprintf "Access: [%s] %s %s\n",
         scalar gmtime, $app->http->request_method, $app->http->url->stringify;
 
-    my $db = Dongry::Database->new
-        (sources => {master => {dsn => Dongry::Type->serialize ('text', $config->{alt_dsns}->{master}->{straw}),
-                                writable => 1, anyevent => 1},
-                     default => {dsn => Dongry::Type->serialize ('text', $config->{dsns}->{straw}),
-                                 anyevent => 1}});
+    my $db = Dongry::Database->new (sources => $DBSources);
 
     return $app->execute_by_promise (sub {
       return Promise->resolve->then (sub {
@@ -56,36 +84,76 @@ sub main ($$$) {
   my ($class, $app, $db) = @_;
   my $path = $app->path_segments;
 
-  if (@$path == 2 and
+  if (@$path >= 2 and
       $path->[0] eq 'source' and $path->[1] =~ /\A[0-9]+\z/) {
-    # /source/{source_id}
-    my $fetch = Straw::Fetch->new_from_db ($db);
-    if ($app->http->request_method eq 'POST') {
+    if (@$path == 2) {
+      # /source/{source_id}
+      my $fetch = Straw::Fetch->new_from_db ($db);
+      if ($app->http->request_method eq 'POST') {
+        # XXX CSRF
+        return $fetch->save_fetch_source
+            ($path->[1],
+             (json_bytes2perl $app->bare_param ('fetch_options') // ''),
+             (json_bytes2perl $app->bare_param ('schedule_options') // ''))->then (sub {
+          return $class->send_json ($app, {});
+        }, sub {
+          if (ref $_[0] eq 'HASH') {
+            return $app->throw_error
+                ($_[0]->{status}, reason_phrase => $_[0]->{reason});
+          } else {
+            die $_[0];
+          }
+        });
+      } else { # GET
+        return $fetch->load_fetch_source_by_id ($path->[1])->then (sub {
+          my $source = $_[0];
+          if (defined $source) {
+            $source->{fetch_options} = json_bytes2perl $source->{fetch_options};
+            $source->{schedule_options} = json_bytes2perl $source->{schedule_options};
+            return $class->send_json
+                ($app, {type => 'fetch_source', fetch => $source});
+          } else {
+            return $app->send_error (404, reason_phrase => 'Source not found');
+          }
+        });
+      }
+    } elsif (@$path == 3 and $path->[2] eq 'enqueue') {
+      # /source/{source_id}/enqueue
+      $app->requires_request_method ({POST => 1});
       # XXX CSRF
-      return $fetch->save_fetch_source
-          ($path->[1],
-           (json_bytes2perl $app->bare_param ('fetch_options') // ''),
-           (json_bytes2perl $app->bare_param ('schedule_options') // ''))->then (sub {
-        return $class->send_json ($app, {});
-      }, sub {
-        if (ref $_[0] eq 'HASH') {
-          return $app->throw_error
-              ($_[0]->{status}, reason_phrase => $_[0]->{reason});
-        } else {
-          die $_[0];
-        }
-      });
-    } else { # GET
+      my $fetch = Straw::Fetch->new_from_db ($db);
       return $fetch->load_fetch_source_by_id ($path->[1])->then (sub {
         my $source = $_[0];
-        if (defined $source) {
-          $source->{fetch_options} = json_bytes2perl $source->{fetch_options};
-          $source->{schedule_options} = json_bytes2perl $source->{schedule_options};
-          return $class->send_json
-              ($app, {type => 'fetch_source', fetch => $source});
-        } else {
-          return $app->send_error (404, reason_phrase => 'Source not found');
-        }
+        return $app->throw_error (404, source_name => 'Fetch source not found')
+            unless defined $source;
+        # XXX don't insert if time - fetch_result.timestamp < threshold
+        return $fetch->add_fetch_task
+            (Dongry::Type->parse ('json', $source->{fetch_options}));
+        #XXX then, add schedule_task
+      })->then (sub {
+        # XXX touch $Worker
+        $app->http->set_status (202);
+        return $class->send_json ($app, {});
+      });
+    } elsif (@$path == 3 and $path->[2] eq 'fetched') {
+      # /source/{source_id}/fetched
+      my $fetch = Straw::Fetch->new_from_db ($db);
+      return $fetch->load_fetch_source_by_id ($path->[1])->then (sub {
+        my $source = $_[0];
+        return $app->throw_error (404, source_name => 'Fetch source not found')
+            unless defined $source;
+        return $fetch->load_fetch_result ($source->{fetch_key})->then (sub {
+          return $app->send_error (404, reason_phrase => 'No fetch result')
+              unless defined $_[0];
+          $app->http->set_response_header
+              ('Content-Type' => 'message/http');
+          $app->http->set_response_header
+              ('Content-Disposition' => 'attachment');
+          $app->http->set_response_header
+              ('Content-Security-Policy' => 'sandbox');
+          $app->http->send_response_body_as_ref (\($_[0]));
+          return $app->http->close_response_body;
+        });
       });
     }
   } elsif (@$path == 1 and $path->[0] eq 'source') {
@@ -239,6 +307,16 @@ sub main ($$$) {
       $app->http->close_response_body;
     });
   } # /run
+
+  # XXX is_test and
+  if (@$path == 2 and $path->[0] eq 'test' and $path->[1] eq 'queue') {
+    # /test/queue
+    return $db->execute ('select fetch_key from fetch_task limit 1')->then (sub {
+      return $class->send_json ($app, {
+        empty => $_[0]->first ? 0 : 1,
+      });
+    });
+  }
 
   return $app->send_error (404);
 } # main

@@ -1,5 +1,4 @@
-
-create table `fetch_source` (
+create table if not exists `fetch_source` (
   `source_id` bigint unsigned not null,
   `fetch_key` varbinary(80) not null,
   `fetch_options` mediumblob not null,
@@ -8,7 +7,7 @@ create table `fetch_source` (
   key (`fetch_key`)
 ) default charset=binary engine=innodb;
 
-create table `fetch_task` (
+create table if not exists `fetch_task` (
   `fetch_key` varbinary(80) not null,
   `fetch_options` mediumblob not null,
   `run_after` double not null,
@@ -18,7 +17,7 @@ create table `fetch_task` (
   key (`running_since`)
 ) default charset=binary engine=innodb;
 
-create table `fetch_result` (
+create table if not exists `fetch_result` (
   `fetch_key` varbinary(80) not null,
   `fetch_options` mediumblob not null,
   `result` mediumblob not null,
@@ -27,26 +26,26 @@ create table `fetch_result` (
   key (`expires`)
 ) default charset=binary engine=innodb;
 
-create table `strict_fetch_subscription` (
+create table if not exists `strict_fetch_subscription` (
   `fetch_key` varbinary(80) not null,
   `process_id` bigint unsigned not null,
   primary key (`fetch_key`, `process_id`),
   key (`process_id`)
 ) default charset=binary engine=innodb;
 
-create table `origin_fetch_subscription` (
+create table if not exists `origin_fetch_subscription` (
   `origin_key` varbinary(80) not null,
   `process_id` bigint unsigned not null,
   primary key (`origin_key`, `process_id`),
   key (`process_id`)
 ) default charset=binary engine=innodb;
 
-create table `stream` (
+create table if not exists `stream` (
   `stream_id` bigint unsigned not null,
   primary key (`stream_id`)
 ) default charset=binary engine=innodb;
 
-create table `stream_item_data` (
+create table if not exists `stream_item_data` (
   `stream_id` bigint unsigned not null,
   `item_key` varbinary(40) not null,
   `channel_id` tinyint unsigned not null,
@@ -58,7 +57,7 @@ create table `stream_item_data` (
   key (`stream_id`, `updated`)
 ) default charset=binary engine=innodb;
 
-create table `stream_subscription` (
+create table if not exists `stream_subscription` (
   `stream_id` bigint unsigned not null,
   `process_id` bigint unsigned not null,
   `last_updated` double not null,
@@ -66,7 +65,7 @@ create table `stream_subscription` (
   key (`process_id`)
 ) default charset=binary engine=innodb;
 
-create table `process_task` (
+create table if not exists `process_task` (
   `process_id` bigint unsigned not null,
   `process_options` mediumblob not null,
     -- fetch_key
@@ -79,7 +78,7 @@ create table `process_task` (
   key (`running_since`)
 ) default charset=binary engine=innodb;
 
-create table `process` (
+create table if not exists `process` (
   `process_id` bigint unsigned not null,
   `process_options` mediumblob not null,
     -- steps
@@ -87,7 +86,7 @@ create table `process` (
   primary key (`process_id`)
 ) default charset=binary engine=innodb;
 
-create table `sink` (
+create table if not exists `sink` (
   `sink_id` bigint unsigned not null,
   `stream_id` bigint unsigned not null,
   `channel_id` tinyint unsigned not null,
