@@ -131,9 +131,9 @@ sub main ($$$) {
             (Dongry::Type->parse ('json', $source->{fetch_options}));
         #XXX then, add schedule_task
       })->then (sub {
-        # XXX touch $Worker
         $app->http->set_status (202);
-        return $class->send_json ($app, {});
+        $class->send_json ($app, {});
+        $Worker->run;
       });
     } elsif (@$path == 3 and $path->[2] eq 'fetched') {
       # /source/{source_id}/fetched
