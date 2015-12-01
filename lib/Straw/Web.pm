@@ -13,6 +13,7 @@ use Dongry::Type::JSONPS;
 use Straw::Action;
 use Straw::Fetch;
 use Straw::Stream;
+use Straw::Process;
 use Straw::Worker;
 
 my $config_path = path ($ENV{APP_CONFIG} // die "Bad |APP_CONFIG|");
@@ -167,9 +168,40 @@ sub main ($$$) {
     my $fetch = Straw::Fetch->new_from_db ($db);
     return $fetch->save_fetch_source
         (undef,
-         (json_bytes2perl $app->bare_param ('fetch_options') // ''),
-         (json_bytes2perl $app->bare_param ('schedule_options') // ''))->then (sub {
+         (json_bytes2perl ($app->bare_param ('fetch_options') // '')),
+         (json_bytes2perl ($app->bare_param ('schedule_options') // '')))->then (sub {
       return $class->send_json ($app, {source_id => $_[0]});
+    }, sub {
+      if (ref $_[0] eq 'HASH') {
+        return $app->throw_error
+            ($_[0]->{status}, reason_phrase => $_[0]->{reason});
+      } else {
+        die $_[0];
+      }
+    });
+  }
+
+  if (@$path >= 2 and
+      $path->[0] eq 'process' and $path->[1] =~ /\A[0-9]+\z/) {
+    if (@$path == 2) {
+      # /process/{process_id}
+      my $process = Straw::Process->new_from_db ($db);
+      return $process->load_process_by_id ($path->[1])->then (sub {
+        my $data = $_[0];
+        return $app->throw_error (404, reason_phrase => 'Process not found')
+            unless defined $data;
+        $data->{process_options} = json_bytes2perl $data->{process_options};
+        return $class->send_json ($app, $data);
+      });
+    }
+  } elsif (@$path == 1 and $path->[0] eq 'process') {
+    # /process
+    $app->requires_request_method ({POST => 1});
+    # XXX CSRF
+    my $process = Straw::Process->new_from_db ($db);
+    return $process->save_process ((json_bytes2perl ($app->bare_param ('process_options') // '')))->then (sub {
+      my $process_id = $_[0];
+      return $class->send_json ($app, {process_id => $process_id});
     }, sub {
       if (ref $_[0] eq 'HASH') {
         return $app->throw_error

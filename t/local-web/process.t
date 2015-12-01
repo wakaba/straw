@@ -8,46 +8,60 @@ my $wait = web_server;
 
 test {
   my $c = shift;
-  return GET ($c, q</stream>)->then (sub {
+  return GET ($c, q</process>)->then (sub {
     my $res = $_[0];
     test {
       is $res->code, 405;
     } $c;
   })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/stream GET';
+} wait => $wait, n => 1, name => '/process GET';
 
 test {
   my $c = shift;
-  return POST ($c, q</stream>, {})->then (sub {
+  return POST ($c, q</process>, {})->then (sub {
     my $res = $_[0];
     my $json = json_bytes2perl $res->content;
     test {
-      is $res->code, 200;
-      ok $json->{stream_id};
-      like $res->content, qr{"stream_id"\s*:\s*"};
+      is $res->code, 400;
     } $c;
-    return GET ($c, qq{/stream/$json->{stream_id}});
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 1, name => '/process POST no options';
+
+test {
+  my $c = shift;
+  return POST ($c, q</process>, {
+    process_options => perl2json_chars {a => "\x{5000}"},
   })->then (sub {
     my $res = $_[0];
     my $json = json_bytes2perl $res->content;
     test {
       is $res->code, 200;
-      is $json->{stream_id}, $json->{stream_id};
-      like $res->content, qr{"stream_id"\s*:\s*"};
+      ok $json->{process_id};
+      like $res->content, qr{"process_id"\s*:\s*"};
+    } $c;
+    return GET ($c, qq{/process/$json->{process_id}});
+  })->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+      is $json->{process_id}, $json->{process_id};
+      like $res->content, qr{"process_id"\s*:\s*"};
+      is $json->{process_options}->{a}, "\x{5000}";
     } $c;
   })->then (sub { done $c; undef $c });
-} wait => $wait, n => 6, name => '/stream POST';
+} wait => $wait, n => 7, name => '/process POST';
 
 test {
   my $c = shift;
-  return GET ($c, qq{/stream/532333})->then (sub {
+  return GET ($c, qq{/process/532333})->then (sub {
     my $res = $_[0];
     my $json = json_bytes2perl $res->content;
     test {
       is $res->code, 404;
     } $c;
   })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/stream/{source_id} GET not found';
+} wait => $wait, n => 1, name => '/process/{source_id} GET not found';
 
 run_tests;
 stop_web_server;
