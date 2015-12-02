@@ -1,7 +1,8 @@
-package Straw::Stream;
+package Straw::Sink;
 use strict;
 use warnings;
 use Dongry::Type;
+use Promise;
 
 sub new_from_db ($$) {
   return bless {db => $_[1]}, $_[0];
@@ -11,42 +12,37 @@ sub db ($) {
   return $_[0]->{db};
 } # db
 
-sub load_stream_by_id ($$) {
-  my ($self, $stream_id) = @_;
-  return $self->db->select ('stream', {
-    stream_id => Dongry::Type->serialize ('text', $stream_id),
+sub load_sink_by_id ($$) {
+  my ($self, $sink_id) = @_;
+  return $self->db->select ('sink', {
+    sink_id => Dongry::Type->serialize ('text', $sink_id),
   })->then (sub {
     my $d = $_[0]->first;
     return undef unless defined $d;
+    $d->{sink_id} .= '';
     $d->{stream_id} .= '';
     return $d;
   });
-} # load_stream_by_id
+} # load_sink_by_id
 
-sub save_stream ($) {
-  my ($self) = @_;
-  my $stream_id;
+sub save_sink ($$) {
+  my ($self, $stream_id) = @_;
+  return Promise->reject ({status => 400, reason => 'Bad |stream_id|'})
+      unless defined $stream_id;
+  # XXX validate stream_id
+  my $sink_id;
   return $self->db->execute ('select uuid_short() as uuid', undef, source_name => 'master')->then (sub {
-    $stream_id = $_[0]->first->{uuid};
+    $sink_id = $_[0]->first->{uuid};
   })->then (sub {
-    return $self->db->insert ('stream', [{
+    return $self->db->insert ('sink', [{
+      sink_id => $sink_id,
       stream_id => $stream_id,
+      channel_id => 0, # XXX channel_id
     }], duplicate => 'ignore');
   })->then (sub {
-    return ''.$stream_id;
+    return ''.$sink_id;
   });
-} # save_stream
-
-sub load_item_data ($%) {
-  my ($self, %args) = @_;
-  return $self->db->select ('stream_item_data', {
-    stream_id => Dongry::Type->serialize ('text', $args{stream_id}),
-    channel_id => Dongry::Type->serialize ('text', $args{channel_id}),
-  }, fields => ['data'], order => ['timestamp', 'DESC'])->then (sub {
-    # XXX limit # XXX props
-    return [map { Dongry::Type->parse ('json', $_->{data})->{props} } @{$_[0]->all}];
-  });
-} # load_item_data
+} # save_sink
 
 1;
 

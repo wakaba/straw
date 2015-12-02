@@ -10,11 +10,11 @@ use Warabe::App;
 use Dongry::Database;
 use Dongry::Type;
 use Dongry::Type::JSONPS;
-use Straw::Action;
 use Straw::Fetch;
 use Straw::Stream;
 use Straw::Process;
 use Straw::Worker;
+use Straw::Sink;
 
 my $config_path = path ($ENV{APP_CONFIG} // die "Bad |APP_CONFIG|");
 my $config = json_bytes2perl $config_path->slurp;
@@ -32,7 +32,8 @@ sub psgi_app ($) {
 
   {
     $Worker = Straw::Worker->new_from_db_sources ($DBSources);
-    $Worker->run;
+    $Worker->run ('fetch');
+    $Worker->run ('process');
 
     $Signals->{TERM} = Promised::Command::Signals->add_handler (TERM => sub {
       $Worker->terminate;
@@ -135,9 +136,9 @@ sub main ($$$) {
       })->then (sub {
         $app->http->set_status (202);
         $class->send_json ($app, {});
-        $Worker->run;
+        $Worker->run ('fetch');
       });
-    } elsif (@$path == 3 and $path->[2] eq 'fetched') {
+    } elsif (@$path == 3 and $path->[2] eq 'fetched') { # XXX debug only
       # /source/{source_id}/fetched
       my $fetch = Straw::Fetch->new_from_db ($db);
       return $fetch->load_fetch_source_by_id ($path->[1])->then (sub {
@@ -235,142 +236,61 @@ sub main ($$$) {
     });
   }
 
-
-  #XXX
   if (@$path >= 2 and
-      $path->[0] eq 'stream' and $path->[1] =~ /\A[0-9]+\z/) {
-    if (@$path == 3 and $path->[2] eq 'items') {
-      # /stream/{stream_id}/items
-      my $act = Straw::Action->new_from_db ($db);
-      return $act->load_for_export ($path->[1])->then (sub {
-        return $class->send_json ($app, $_[0]);
+      $path->[0] eq 'sink' and $path->[1] =~ /\A[0-9]+\z/) {
+    if (@$path == 2) {
+      # /sink/{sink_id}
+      my $sink = Straw::Sink->new_from_db ($db);
+      return $sink->load_sink_by_id ($path->[1])->then (sub {
+        my $data = $_[0];
+        return $app->throw_error (404, reason_phrase => 'Sink not found')
+            unless defined $data;
+        return $class->send_json ($app, $data);
       });
-    }
-
-    if (@$path == 3 and $path->[2] eq 'run') {
-      # /stream/{stream_id}/run
-      return $app->send_error (405)
-          unless $app->http->request_method eq 'POST';
-      # XXX CSRF
-      my $act = Straw::Action->new_from_db ($db);
-      return Promise->resolve->then (sub {
-        #return $act->enqueue_stream_processes ([$path->[1]], 0);
-      })->then (sub {
-        return $act->schedule_fetch_by_stream_id ($path->[1]);
-      })->then (sub {
-        return $class->send_json ($app, {});
-      });
-    }
-
-    if (@$path == 3 and $path->[2] eq 'edit') {
-      # /stream/{stream_id}/edit
-      # XXX {stream_id} not found
-      return $app->send_html (q{
-        <!DOCTYPE html>
-        <title>Edit</title>
-        <form action=javascript: method=post>
-          <p><textarea name=data></textarea>
-          <p><button type=submit>Save</button>
-          <p><button type=button class=run-button onclick="
-            var f = document.createElement ('form');
-            f.method = 'POST';
-            f.action = 'run';
-            f.target = 'result';
-            f.submit ();
-          ">Run</button>
-          <iframe name=result></iframe>
-          <script>
-            fetch ('edit.json').then (function (res) {
-              return res.text ();
-            }).then (function (s) {
-              document.forms[document.forms.length-1].elements.data.value = s;
-            });
-            var form = document.forms[document.forms.length-1];
-            form.onsubmit = function () {
-              var submits = Array.prototype.slice (this.querySelectorAll ('[type=submit]'));
-              submits.forEach (function (x) { x.disabled = true });
-              var fd = new FormData (this);
-              fetch ('edit.json', {body: fd, method: 'POST'}).then (function (res) {
-                submits.forEach (function (x) { x.disabled = false });
-              });
-              return false;
-            };
-          </script>
-        </form>
-      });
-    }
-
-    if (@$path == 3 and $path->[2] eq 'edit.json') {
-      # /stream/{stream_id}/edit.json
-      # XXX stream not found
-      # XXX access control
-      if ($app->http->request_method eq 'POST') {
-        # XXX CSRF
-        my $data = json_bytes2perl $app->bare_param ('data') // '';
-        return $app->send_error (400) unless defined $data;
-        my $time = time;
-        return $db->insert ('stream_process', [{
-          stream_id => Dongry::Type->serialize ('text', $path->[1]),
-          data => Dongry::Type->serialize ('json', $data),
-          created => $time,
-          updated => $time,
-        }], duplicate => {
-          data => $db->bare_sql_fragment ('VALUES(data)'),
-          updated => $db->bare_sql_fragment ('VALUES(updated)'),
-        })->then (sub {
-          my $act = Straw::Action->new_from_db ($db);
-          return $act->update_subscriptions ($path->[1], $data);
-        })->then (sub {
-          return $class->send_json ($app, {});
+    } elsif (@$path == 3 and $path->[2] eq 'items') {
+      # /sink/{sink_id}/items
+      my $sink = Straw::Sink->new_from_db ($db);
+      return $sink->load_sink_by_id ($path->[1])->then (sub {
+        my $data = $_[0];
+        return $app->throw_error (404, reason_phrase => 'Sink not found')
+            unless defined $data;
+        my $stream = Straw::Stream->new_from_db ($db);
+        return $stream->load_item_data
+            (stream_id => $data->{stream_id},
+             channel_id => $data->{channel_id},
+             # XXX page parameters
+            )->then (sub {
+          return $class->send_json ($app, {items => $_[0]});
         });
-      } else {
-        return $db->select ('stream_process', {
-          stream_id => Dongry::Type->serialize ('text', $path->[1]),
-        })->then (sub {
-          my $data = $_[0]->first;
-          if (defined $data) {
-            return $class->send_json
-                ($app, Dongry::Type->parse ('json', $data->{data}));
-          } else {
-            return $app->send_error (404);
-          }
-        });
-      }
-    }
-  } # /stream/{stream_id}
-
-  if (@$path == 1 and $path->[0] eq 'run') {
-    unless ($app->http->request_method eq 'POST') {
-      return $app->send_html (q{
-        <!DOCTYPE HTML>
-        <title>Run</title>
-        <form method=post action=/run target=result>
-          <p><button type=submit>Run</button>
-        </form>
-        <p><iframe name=result style="width:100%;height:30em"></iframe>
       });
     }
+  } elsif (@$path == 1 and $path->[0] eq 'sink') {
+    # /sink
+    $app->requires_request_method ({POST => 1});
     # XXX CSRF
-
-    $app->http->set_response_header
-        ('Content-Type', 'text/plain; charset=utf-8');
-    my $act = Straw::Action->new_from_db ($db);
-    $act->onlog (sub {
-      $app->http->send_response_body_as_text ("$_[1]\n");
+    my $sink = Straw::Sink->new_from_db ($db);
+    return $sink->save_sink ($app->bare_param ('stream_id'))->then (sub {
+      my $sink_id = $_[0];
+      return $class->send_json ($app, {sink_id => $sink_id});
+    }, sub {
+      if (ref $_[0] eq 'HASH') {
+        return $app->throw_error
+            ($_[0]->{status}, reason_phrase => $_[0]->{reason});
+      } else {
+        die $_[0];
+      }
     });
-    return $act->run_fetches->then (sub {
-      return $act->run_stream_processes;
-    })->then (sub {
-      $app->http->close_response_body;
-    });
-  } # /run
+  }
 
   # XXX is_test and
   if (@$path == 2 and $path->[0] eq 'test' and $path->[1] eq 'queue') {
     # /test/queue
     return $db->execute ('select fetch_key from fetch_task limit 1')->then (sub {
-      return $class->send_json ($app, {
-        empty => $_[0]->first ? 0 : 1,
+      return $class->send_json ($app, {empty => 0}) if $_[0]->first;
+      return $db->execute ('select process_id from process_task limit 1')->then (sub {
+        return $class->send_json ($app, {
+          empty => $_[0]->first ? 0 : 1,
+        });
       });
     });
   }

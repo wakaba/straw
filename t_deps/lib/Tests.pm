@@ -10,6 +10,7 @@ use Promised::File;
 use Promised::Plackup;
 use Promised::Mysqld;
 use JSON::PS;
+use MIME::Base64;
 use Web::UserAgent::Functions qw(http_post http_get);
 use Test::More;
 use Test::X1;
@@ -55,15 +56,34 @@ sub remote_server (;$) {
     use warnings;
     use Wanage::HTTP;
     use Warabe::App;
+    use MIME::Base64;
+    use JSON::PS;
+
+    my $Data = {};
 
     return sub {
       my $http = Wanage::HTTP->new_from_psgi_env ($_[0]);
       my $app = Warabe::App->new_from_http ($http);
       return $app->execute_by_promise (sub {
-        my $path = $app->path_segments;
+        my $path = $app->http->url->{path};
 
-        if ($path->[0] eq '1') {
-          return $app->send_plain_text ('foo');
+        if ($app->http->request_method eq 'POST') {
+          $Data->{$path} = {
+            headers => json_bytes2perl ($app->bare_param ('headers') // ''),
+            body => decode_base64 ($app->bare_param ('body') // ''),
+          };
+          return $app->send_error (200);
+        } else {
+          my $data = $Data->{$path};
+          if (defined $data) {
+            if (defined $data->{headers} and ref $data->{headers} eq 'HASH') {
+              for (keys %{$data->{headers}}) {
+                $app->http->set_response_header ($_ => $data->{headers}->{$_});
+              }
+            }
+            $app->http->send_response_body_as_ref (\($data->{body}));
+            return $app->http->close_response_body;
+          }
         }
 
         return $app->send_error (404);
@@ -72,12 +92,6 @@ sub remote_server (;$) {
   });
   return $RemoteServer;
 } # remote_server
-
-push @EXPORT, qw(remote_url);
-sub remote_url ($) {
-  my $host = $RemoteServer->get_host;
-  return qq<http://$host$_[0]>;
-} # remote_url
 
 push @EXPORT, qw(web_server);
 sub web_server (;$) {
@@ -181,6 +195,42 @@ sub create_source ($%) {
   });
 } # create_source
 
+push @EXPORT, qw(create_sink);
+sub create_sink ($$) {
+  my ($c, $stream) = @_;
+  return POST ($c, q</sink>, {
+    stream_id => $stream->{stream_id},
+    channel_id => 0, # XXX
+  })->then (sub {
+    die $_[0]->as_string unless $_[0]->code == 200;
+    return json_bytes2perl $_[0]->content;
+  });
+} # create_sink
+
+push @EXPORT, qw(create_stream);
+sub create_stream ($) {
+  my ($c) = @_;
+  return POST ($c, q</stream>, {})->then (sub {
+    die $_[0]->as_string unless $_[0]->code == 200;
+    return json_bytes2perl $_[0]->content;
+  });
+} # create_stream
+
+push @EXPORT, qw(create_process);
+sub create_process ($$$$) {
+  my ($c, $input => $steps => $output) = @_;
+  return POST ($c, q</process>, {
+    process_options => perl2json_chars {
+      input_source_ids => [$input->{source_id}],
+      steps => $steps,
+      output_stream_id => $output->{stream_id},
+    },
+  })->then (sub {
+    die $_[0]->as_string unless $_[0]->code == 200;
+    return json_bytes2perl $_[0]->content;
+  });
+} # create_process
+
 sub wait_seconds ($) {
   my $seconds = $_[0];
   return Promise->new (sub {
@@ -209,6 +259,46 @@ sub wait_drain ($) {
   }; # $try
   return $try->()->then (sub { undef $try });
 } # wait_drain
+
+sub remote_url ($) {
+  my $host = $RemoteServer->get_host;
+  return qq<http://$host$_[0]>;
+} # remote_url
+
+push @EXPORT, qw(remote);
+sub remote ($$) {
+  my ($c, $eps) = @_;
+  my $p = Promise->resolve;
+  my $host = $RemoteServer->get_host;
+  my $path = q</> . rand . q</>;
+  my $result = {};
+  for my $key (keys %$eps) {
+    my $path = $path . $key;
+    my $headers = {};
+    my $body = $eps->{$key};
+    if (defined $body and ref $body eq 'ARRAY') {
+      $headers = $body->[0];
+      $body = $body->[1];
+    }
+    $p = $p->then (sub {
+      return Promise->new (sub {
+        my ($ok, $ng) = @_;
+        http_post
+            url => qq{http://$host$path},
+            params => {headers => (perl2json_chars $headers),
+                       body => (encode_base64 $body)},
+            timeout => 60,
+            anyevent => 1,
+            cb => sub {
+              my (undef, $res) = @_;
+              $ok->($res);
+            };
+      });
+    });
+    $result->{$key} = qq<http://$host$path>;
+  }
+  return $p->then (sub { return $result });
+} # remote
 
 1;
 

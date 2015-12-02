@@ -1,3 +1,4 @@
 File::Temp
+MIME::Base64
 Path::Tiny
 Test::More

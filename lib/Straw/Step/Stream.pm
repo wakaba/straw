@@ -8,35 +8,6 @@ use Promise;
 use Dongry::Type;
 use Dongry::Type::JSONPS;
 
-# XXX internal
-$Straw::Step->{save_stream} = {
-  in_type => 'Stream',
-  code => sub {
-    my ($self, $step, $in) = @_;
-    my $stream_id = $step->{stream_id}; # XXX or error
-
-    ## Stream metadata
-    # XXX
-
-    ## Stream items
-    return Promise->resolve ($in) unless @{$in->{items}};
-    return $self->db->insert ('stream_item', [map {
-      my $updated = time;
-      my $timestamp = $_->{props}->{timestamp} || $updated;
-      my $key = sha1_hex (Dongry::Type->serialize ('text', $_->{props}->{key} // $timestamp));
-      +{
-        stream_id => Dongry::Type->serialize ('text', $stream_id),
-        key => $key,
-        data => Dongry::Type->serialize ('json', $_),
-        timestamp => $timestamp,
-        updated => $updated,
-      };
-    } reverse @{$in->{items}}], duplicate => 'replace')->then (sub {
-      return $in;
-    });
-  },
-}; # save_stream
-
 $Straw::Step->{dump_stream} = {
   in_type => 'Stream',
   code => sub {

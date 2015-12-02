@@ -67,7 +67,7 @@ create table if not exists `stream_subscription` (
 
 create table if not exists `process_task` (
   `process_id` bigint unsigned not null,
-  `process_options` mediumblob not null,
+  `process_args` mediumblob not null,
     -- fetch_key
     -- stream_id
     --   channel_id mappings

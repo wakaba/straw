@@ -5,9 +5,13 @@ use AnyEvent;
 use Promise;
 use Dongry::Database;
 use Straw::Fetch;
+use Straw::Process;
 
 sub new_from_db_sources ($$) {
-  return bless {db_sources => $_[1], worker_count => 0}, $_[0];
+  return bless {db_sources => $_[1],
+                worker_count => {fetch => 0,
+                                 process => 0,
+                                 all => 0}}, $_[0];
 } # new_from_db
 
 sub db ($) {
@@ -34,46 +38,51 @@ sub terminate ($) {
 my $SleepSeconds = 30;
 my $MaxWorkers = 5;
 
-sub _after_run ($) {
-  my $self = $_[0];
-  $self->{worker_count}--;
-  if ($self->{terminate} and $self->{worker_count} <= 0) {
+sub _after_run ($$) {
+  my ($self, $type) = @_;
+  $self->{worker_count}->{$type}--;
+  $self->{worker_count}->{all}--;
+  if ($self->{terminate} and $self->{worker_count}->{all} <= 0) {
     my $db = delete $self->{db};
     return $db->disconnect;
-  } elsif ($self->{worker_count} > 0) {
+  } elsif ($self->{worker_count}->{all} > 0) {
     return;
   } else {
     my $db = delete $self->{db};
     return $db->disconnect->then (sub {
       return wait_seconds ($SleepSeconds);
     })->then (sub {
-      if ($self->{terminate} and $self->{worker_count} <= 0) {
+      if ($self->{terminate} and $self->{worker_count}->{all} <= 0) {
         my $db = delete $self->{db};
         return $db->disconnect;
       } else {
-        return $self->run;
+        return $self->run ($type);
       }
     });
   }
 } # _after_run
 
-sub run ($) {
-  my $self = $_[0];
-  return if $self->{terminate} or $self->{worker_count} + 1 > $MaxWorkers;
-  $self->{worker_count}++;
-  my $fetch = Straw::Fetch->new_from_db ($self->db);
+sub run ($$) {
+  my ($self, $type) = @_;
+  return if $self->{terminate} or
+            $self->{worker_count}->{$type} + 1 > $MaxWorkers;
+  $self->{worker_count}->{$type}++;
+  $self->{worker_count}->{all}++;
+  my $cls = $type eq 'fetch' ? 'Straw::Fetch' : 'Straw::Process';
+  my $mod = $cls->new_from_db ($self->db);
   my $r; $r = sub {
-    return $fetch->run_fetch_task->then (sub {
+    return $mod->run_task->then (sub {
       my $more = $_[0];
-      return $r->() if $more;
+      $self->run ('process') if $more->{process}; # don't return
+      return $r->() if $more->{continue};
     });
   }; # $r
   return Promise->resolve ($r->())->catch (sub {
     warn $_[0]; # XXX
   })->then (sub {
-    undef $fetch;
+    undef $mod;
     undef $r;
-    return $self->_after_run;
+    return $self->_after_run ($type);
   });
 } # run
 

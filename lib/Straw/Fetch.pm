@@ -8,6 +8,7 @@ use Dongry::Type;
 use Dongry::Type::JSONPS;
 use Promise;
 use Web::UserAgent::Functions qw(http_get);
+use Straw::Process;
 
 sub new_from_db ($$) {
   return bless {db => $_[1]}, $_[0];
@@ -89,10 +90,11 @@ sub add_fetch_task ($$;%) {
 
 my $ProcessTimeout = 60; # XXX 60*60;
 
-sub run_fetch_task ($) {
+sub run_task ($) {
   my $self = $_[0];
   my $db = $self->db;
   my $time = time;
+  my $result = {};
   return $db->update ('fetch_task', {
     running_since => $time,
   }, where => {
@@ -107,30 +109,28 @@ sub run_fetch_task ($) {
     for my $data (@{$_[0]->all}) {
       my $options = Dongry::Type->parse ('json', $data->{fetch_options});
       return $p = $p->then (sub {
-        return $self->fetch ($data->{fetch_key}, $options);
+        return $self->fetch ($data->{fetch_key}, $options, $result);
       })->catch (sub {
         warn $_[0]; # XXX error reporting
       })->then (sub {
+        $result->{continue} = 1;
         return $db->delete ('fetch_task', {
           fetch_key => $data->{fetch_key},
         });
-      })->then (sub {
-        return 1;
       });
     }
     return $p;
   })->then (sub {
-    my $result = $_[0];
     return $db->delete ('fetch_task', {
       running_since => {'<', time - $ProcessTimeout, '!=' => 0},
-    })->then (sub {
-      return $result;
     });
+  })->then (sub {
+    return $result;
   });
-} # run_fetch_task
+} # run_task
 
-sub fetch ($$$) {
-  my ($self, $fetch_key, $options) = @_;
+sub fetch ($$$$) {
+  my ($self, $fetch_key, $options, $result) = @_;
   return Promise->new (sub {
     my ($ok, $ng) = @_;
     # XXX redirect
@@ -153,13 +153,15 @@ sub fetch ($$$) {
       expires => $db->bare_sql_fragment ('GREATEST(VALUES(expires),expires)'),
     });
   })->then (sub {
-#XXX
-#    return $self->db->select ('fetch_subscription', {
-#      key => Dongry::Type->serialize ('text', $key),
-#    }, fields => ['dst_stream_id'], distinct => 1)->then (sub {
-#      my @pid = map { $_->{dst_stream_id} } @{$_[0]->all};
-#      return $self->enqueue_stream_processes (\@pid, $SubscriptionDelay);
-#    });
+    my $process = Straw::Process->new_from_db ($self->db);
+    return $self->db->select ('strict_fetch_subscription', {
+      fetch_key => Dongry::Type->serialize ('text', $fetch_key),
+    }, fields => ['process_id'])->then (sub {
+      $result->{process} = 1;
+      return $process->add_process_task
+          ([map { $_->{process_id} } @{$_[0]->all}], fetch_key => $fetch_key);
+    });
+    # XXX origin_fetch_subscription
   });
 } # fetch
 

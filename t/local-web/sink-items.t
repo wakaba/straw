@@ -8,36 +8,20 @@ my $wait = web_server;
 
 test {
   my $c = shift;
-  my $source;
-  return remote ($c, {
-    q<1> => 'foo',
+  return create_stream ($c)->then (sub {
+    return create_sink ($c, $_[0]);
   })->then (sub {
-    return create_source ($c,
-      fetch => {url => $_[0]->{1}},
-    );
-  })->then (sub {
-    $source = $_[0];
-    return POST ($c, qq{/source/$source->{source_id}/enqueue}, {});
-  })->then (sub {
-    my $res = $_[0];
-    test {
-      is $res->code, 202;
-    } $c;
-    return wait_drain $c;
-  })->then (sub {
-    return GET ($c, qq{/source/$source->{source_id}/fetched});
+    return GET ($c, q</sink/> . $_[0]->{sink_id} . q</items>);
   })->then (sub {
     my $res = $_[0];
     test {
       is $res->code, 200;
-      is $res->header ('Content-Type'), 'message/http';
-      is $res->header ('Content-Disposition'), 'attachment';
-      is $res->header ('Content-Security-Policy'), 'sandbox';
-      like $res->content, qr{^HTTP/};
-      like $res->content, qr{^foo$}m;
+      is $res->header ('Content-Type'), 'application/json; charset=utf-8';
+      my $json = json_bytes2perl $res->content;
+      is 0+@{$json->{items}}, 0;
     } $c;
   })->then (sub { done $c; undef $c });
-} wait => $wait, n => 7, name => 'fetch ok';
+} wait => $wait, n => 3, name => '/sink/{sink_id}/items GET';
 
 run_tests;
 stop_web_server;

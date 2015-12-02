@@ -8,60 +8,61 @@ my $wait = web_server;
 
 test {
   my $c = shift;
-  return GET ($c, q</process>)->then (sub {
+  return GET ($c, q</sink>)->then (sub {
     my $res = $_[0];
     test {
       is $res->code, 405;
     } $c;
   })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/process GET';
+} wait => $wait, n => 1, name => '/sink GET';
 
 test {
   my $c = shift;
-  return POST ($c, q</process>, {})->then (sub {
+  return POST ($c, q</sink>, {})->then (sub {
     my $res = $_[0];
     my $json = json_bytes2perl $res->content;
     test {
       is $res->code, 400;
     } $c;
   })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/process POST no options';
+} wait => $wait, n => 1, name => '/sink POST no stream_id';
 
 test {
   my $c = shift;
-  return POST ($c, q</process>, {
-    process_options => perl2json_chars {a => "\x{5000}"},
+  return POST ($c, q</sink>, {
+    stream_id => 1253333,
   })->then (sub {
     my $res = $_[0];
     my $json = json_bytes2perl $res->content;
     test {
       is $res->code, 200;
-      ok $json->{process_id};
-      like $res->content, qr{"process_id"\s*:\s*"};
+      ok $json->{sink_id};
+      like $res->content, qr{"sink_id"\s*:\s*"};
     } $c;
-    return GET ($c, qq{/process/$json->{process_id}});
+    return GET ($c, qq{/sink/$json->{sink_id}});
   })->then (sub {
     my $res = $_[0];
     my $json = json_bytes2perl $res->content;
     test {
       is $res->code, 200;
-      is $json->{process_id}, $json->{process_id};
-      like $res->content, qr{"process_id"\s*:\s*"};
-      is $json->{process_options}->{a}, "\x{5000}";
+      is $json->{sink_id}, $json->{sink_id};
+      like $res->content, qr{"sink_id"\s*:\s*"};
+      is $json->{stream_id}, 1253333;
+      like $res->content, qr{"stream_id"\s*:\s*"};
     } $c;
   })->then (sub { done $c; undef $c });
-} wait => $wait, n => 7, name => '/process POST';
+} wait => $wait, n => 8, name => '/sink POST';
 
 test {
   my $c = shift;
-  return GET ($c, qq{/process/532333})->then (sub {
+  return GET ($c, qq{/sink/532333})->then (sub {
     my $res = $_[0];
     my $json = json_bytes2perl $res->content;
     test {
       is $res->code, 404;
     } $c;
   })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/process/{process_id} GET not found';
+} wait => $wait, n => 1, name => '/sink/{sink_id} GET not found';
 
 run_tests;
 stop_web_server;
