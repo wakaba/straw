@@ -11,7 +11,7 @@ test {
   return GET ($c, q</>)->then (sub {
     my $res = $_[0];
     test {
-      is $res->code, 404;
+      is $res->code, 200;
     } $c;
   })->then (sub { done $c; undef $c });
 } wait => $wait, n => 1, name => '/';

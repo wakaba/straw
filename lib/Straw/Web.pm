@@ -3,6 +3,7 @@ use strict;
 use warnings;
 use Path::Tiny;
 use Promise;
+use Promised::File;
 use Promised::Command::Signals;
 use JSON::PS;
 use Wanage::HTTP;
@@ -23,6 +24,9 @@ my $DBSources = {master => {dsn => Dongry::Type->serialize ('text', $config->{al
                             writable => 1, anyevent => 1},
                  default => {dsn => Dongry::Type->serialize ('text', $config->{dsns}->{straw}),
                              anyevent => 1}};
+
+my $IndexFile = Promised::File->new_from_path
+    (path (__FILE__)->parent->parent->parent->child ('index.html'));
 
 my $Worker;
 my $Signals = {};
@@ -279,6 +283,16 @@ sub main ($$$) {
       } else {
         die $_[0];
       }
+    });
+  }
+
+  if (@$path == 1 and $path->[0] eq '') {
+    # /
+    return $IndexFile->read_byte_string->then (sub {
+      $app->http->set_response_header
+          ('Content-Type' => 'text/html; charset=utf-8');
+      $app->http->send_response_body_as_ref (\($_[0]));
+      return $app->http->close_response_body;
     });
   }
 

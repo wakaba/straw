@@ -1,0 +1,38 @@
+<!DOCTYPE HTML>
+
+<form action=javascript: onsubmit="
+  fetch ('/source', {method: 'POST', body: new FormData (this)}).then (function (res) {
+    if (res.status !== 200) throw res;
+    return res.json ();
+  }).then (function (json) {
+    document.forms.load_source.elements.source_id.value = json.source_id;
+    document.forms.load_source.dispatchEvent (new Event ('submit'));
+  });
+">
+  <input type=hidden name=type value=fetch_source>
+  <input type=hidden name=fetch_options value={}>
+  <input type=hidden name=schedule_options value={}>
+  <p><button type=submit>New source</button>
+</form>
+
+<form id=load_source action=javascript: onsubmit="
+  var sourceId = elements.source_id.value;
+  fetch ('/source/' + encodeURIComponent (sourceId)).then (function (res) {
+    if (res.status !== 200) throw res;
+    return res.json ();
+  }).then (function (json) {
+    var form = document.forms.source;
+    if (json.type === 'fetch_source') {
+      form.elements.fetch_options.value = JSON.stringify (json.fetch.fetch_options);
+      form.elements.schedule_options.value = JSON.stringify (json.fetch.schedule_options);
+    }
+  });
+">
+  <p><label>Source ID: <input name=source_id></label>
+  <p><button type=submit>Load</button>
+</form>
+
+<form id=source>
+  <p><textarea name=fetch_options></textarea>
+  <p><textarea name=schedule_options></textarea>
+</form>
