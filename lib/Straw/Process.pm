@@ -49,46 +49,62 @@ sub save_process ($$) {
     }], duplicate => 'ignore');
   })->then (sub {
     my $source_ids = $process_options->{input_source_ids};
-    return unless defined $source_ids and ref $source_ids eq 'ARRAY';
-    return unless @$source_ids;
+    return [] unless defined $source_ids and ref $source_ids eq 'ARRAY';
+    return [] unless @$source_ids;
     $source_ids = [map { Dongry::Type->serialize ('text', $_) } @$source_ids];
-    return $self->db->select ('fetch_source', {source_id => {-in => $source_ids}}, fields => ['fetch_key'], distinct => 1)->then (sub {
-      my @key = map { $_->{fetch_key} } @{$_[0]->all};
-      if (@key) {
-        return $self->db->insert ('strict_fetch_subscription', [map { {
-          fetch_key => $_,
-          process_id => $process_id,
-        } } @key], duplicate => 'ignore')->then (sub {
-          return $self->db->delete ('strict_fetch_subscription', {
-            fetch_key => {-not_in => \@key},
-            process_id => $process_id,
-          });
-        });
-      } else {
-        return $self->db->delete ('strict_fetch_subscription', {
-          process_id => $process_id,
-        });
-      }
+    return $self->db->select ('fetch_source', {
+      source_id => {-in => $source_ids},
+    }, fields => ['fetch_key'], distinct => 1)->then (sub {
+      return [map { $_->{fetch_key} } @{$_[0]->all}];
     });
+  })->then (sub {
+    my $keys = $_[0];
+    if (@$keys) {
+      return $self->db->insert ('strict_fetch_subscription', [map { {
+        fetch_key => $_,
+        process_id => $process_id,
+      } } @$keys], duplicate => 'ignore')->then (sub {
+        return $self->db->delete ('strict_fetch_subscription', {
+          fetch_key => {-not_in => $keys},
+          process_id => $process_id,
+        });
+      });
+    } else {
+      return $self->db->delete ('strict_fetch_subscription', {
+        process_id => $process_id,
+      });
+    }
     # XXX origin subscription
+  })->then (sub {
+    my $stream_ids = $process_options->{input_stream_ids};
+    if (defined $stream_ids and ref $stream_ids eq 'ARRAY' and
+        @$stream_ids) {
+      $stream_ids = [map { Dongry::Type->serialize ('text', $_) } @$stream_ids];
+      return $self->db->insert ('stream_subscription', [map { {
+        stream_id => $_,
+        process_id => $process_id,
+      } } @$stream_ids], duplicate => 'ignore')->then (sub {
+        return $self->db->delete ('stream_subscription', {
+          stream_id => {-not_in => $stream_ids},
+          process_id => $process_id,
+        });
+      });
+    } else {
+      return $self->db->delete ('stream_subscription', {
+        process_id => $process_id,
+      });
+    }
   })->then (sub {
     return ''.$process_id;
   });
 } # save_process
 
-sub run_process ($$$) {
-  my ($self, $process_options, $process_args) = @_;
+sub run_process ($$$$) {
+  my ($self, $process_options, $process_args, $result) = @_;
   return $self->_load ($process_options, $process_args)->then (sub {
     return $self->_steps ($process_options, $_[0]);
   })->then (sub {
-    return $self->_save ($process_options, $_[0]);
-#XXX
-#    return $self->db->select ('stream_subscription', {
-#      src_stream_id => Dongry::Type->serialize ('text', $stream_id),
-#    }, fields => ['dst_stream_id'], distinct => 1)->then (sub {
-#      my @pid = map { $_->{dst_stream_id} } @{$_[0]->all};
-#      return $self->enqueue_stream_processes (\@pid, $SubscriptionDelay);
-#    });
+    return $self->_save ($process_options, $_[0], $result);
   });
 } # run_process
 
@@ -104,46 +120,24 @@ sub _load ($$$) {
       return {type => 'HTTP::Response',
               res => HTTP::Response->parse ($_[0])};
     });
+  } elsif (defined $process_args->{stream_id}) {
+    my $src = $process_args->{stream_id};
+    my $ref = 0; # XXX
+    return $self->db->select ('stream_item_data', {
+      stream_id => Dongry::Type->serialize ('text', $src),
+      # XXX channel_id
+      updated => {'>', $ref},
+    }, fields => ['data'], order => ['updated', 'ASC'], limit => 10)->then (sub { # XXX
+      my $items = [];
+      for (@{$_[0]->all}) {
+        my $data = Dongry::Type->parse ('json', $_->{data});
+        push @$items, $data;
+      }
+      return {type => 'Stream', items => $items};
+    });
   }
 
-  die "No input";
-
-=pod 
-
-  #XXX
-  my @id;
-  my $out = {type => 'Stream', items => []};
-  return Promise->resolve->then (sub {
-    return $self->db->select ('stream_subscription', {
-      src_stream_id => {-in => \@id},
-      dst_stream_id => Dongry::Type->serialize ('text', $stream_id),
-    }, fields => ['ref', 'src_stream_id']);
-  })->then (sub {
-    my $p = Promise->resolve;
-    for (@{$_[0]->all}) {
-      my $src = $_->{src_stream_id};
-      my $ref = $_->{ref} || 0;
-      $self->onlog->($self, "[$src] ref=$ref");
-      $p = $p->then (sub {
-        return $self->db->select ('stream_item', {
-          stream_id => $src,
-          updated => {'>', $ref},
-        }, order => ['updated', 'ASC'], limit => 10); # XXX
-      })->then (sub {
-        for (@{$_[0]->all}) {
-          my $data = Dongry::Type->parse ('json', $_->{data});
-          push @{$out->{items}}, $data;
-          $self->{loaded_stream_updated}->{$src} = $_->{updated};
-        }
-      });
-    }
-    return $p;
-  })->then (sub {
-    return $out;
-  });
-
-=cut
-
+  die "Bad process argument";
 } # _load
 
 sub _steps ($$$) {
@@ -189,10 +183,10 @@ sub _steps ($$$) {
     });
   }
   return $p;
-} # steps
+} # _steps
 
-sub _save ($$$) {
-  my ($self, $process_options, $input) = @_;
+sub _save ($$$$) {
+  my ($self, $process_options, $input, $result) = @_;
 
   my $stream_id = $process_options->{output_stream_id};
   die "No output stream ID" unless defined $stream_id;
@@ -214,7 +208,15 @@ sub _save ($$$) {
       timestamp => $timestamp,
       updated => $updated,
     };
-  } reverse @{$input->{items}}], duplicate => 'replace');
+  } reverse @{$input->{items}}], duplicate => 'replace')->then (sub {
+    return $self->db->select ('stream_subscription', {
+      stream_id => Dongry::Type->serialize ('text', $stream_id),
+    }, fields => ['process_id'])->then (sub {
+      $result->{process} = 1;
+      return $self->add_process_task
+          ([map { $_->{process_id} } @{$_[0]->all}], stream_id => $stream_id);
+    });
+  });
 } # _save
 
 sub add_process_task ($$;%) {
@@ -256,7 +258,7 @@ sub run_task ($) {
       })->then (sub {
         die "Process |$data->{process_id}| not found" unless defined $_[0];
         my $options = Dongry::Type->parse ('json', $_[0]->{process_options});
-        return $self->run_process ($options, $args);
+        return $self->run_process ($options, $args, $result);
       })->catch (sub {
         warn $_[0]; # XXX error reporting
       })->then (sub {

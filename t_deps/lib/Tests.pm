@@ -221,7 +221,8 @@ sub create_process ($$$$) {
   my ($c, $input => $steps => $output) = @_;
   return POST ($c, q</process>, {
     process_options => perl2json_chars {
-      input_source_ids => [$input->{source_id}],
+      (defined $input->{source_id} ? (input_source_ids => [$input->{source_id}]) : ()),
+      (defined $input->{stream_id} ? (input_stream_ids => [$input->{stream_id}]) : ()),
       steps => $steps,
       output_stream_id => $output->{stream_id},
     },
