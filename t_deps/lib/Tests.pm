@@ -58,6 +58,7 @@ sub remote_server (;$) {
     use Warabe::App;
     use MIME::Base64;
     use JSON::PS;
+    use Time::HiRes qw(time);
 
     my $Data = {};
 
@@ -81,7 +82,9 @@ sub remote_server (;$) {
                 $app->http->set_response_header ($_ => $data->{headers}->{$_});
               }
             }
-            $app->http->send_response_body_as_ref (\($data->{body}));
+            my $body = $data->{body};
+            $body =~ s/\@\@TIME\@\@/time/ge;
+            $app->http->send_response_body_as_ref (\$body);
             return $app->http->close_response_body;
           }
         }
@@ -232,6 +235,7 @@ sub create_process ($$$$) {
   });
 } # create_process
 
+push @EXPORT, qw(wait_seconds);
 sub wait_seconds ($) {
   my $seconds = $_[0];
   return Promise->new (sub {

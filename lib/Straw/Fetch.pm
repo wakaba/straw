@@ -39,8 +39,8 @@ sub serialize_fetch ($) {
   return ($fetch_key, $fetch_options);
 } # serialize_fetch
 
-sub save_fetch_source ($$$$) {
-  my ($self, $source_id, $fetch_options, $schedule_options) = @_;
+sub save_fetch_source ($$$$$) {
+  my ($self, $source_id, $fetch_options, $schedule_options, $result) = @_;
   return Promise->reject ({status => 400, reason => "Bad |fetch_options|"})
       unless defined $fetch_options and ref $fetch_options eq 'HASH';
   return Promise->reject ({status => 400, reason => "Bad |schedule_options|"})
@@ -72,6 +72,8 @@ sub save_fetch_source ($$$$) {
       schedule_options => Dongry::Type->serialize ('json', $schedule_options),
     }], duplicate => 'replace');
   })->then (sub {
+    return $self->schedule_next_fetch_task ($fetch_key, $result);
+  })->then (sub {
     return ''.$source_id;
   });
 } # save_fetch_source
@@ -80,13 +82,46 @@ sub add_fetch_task ($$;%) {
   my ($self, $fetch_options, %args) = @_;
   my $fetch_key;
   ($fetch_key, $fetch_options) = serialize_fetch $fetch_options;
+  my $after = $args{result}->{next_fetch_time} = time + ($args{delta} || 0);
   return $self->db->insert ('fetch_task', [{
     fetch_key => $fetch_key,
     fetch_options => $fetch_options,
-    run_after => time + ($args{delta} || 0),
+    run_after => $after,
     running_since => 0,
-  }], duplicate => 'ignore');
+  }], duplicate => {
+    run_after => $self->db->bare_sql_fragment (q{LEAST(run_after, VALUES(run_after))}),
+    running_since => 0,
+  });
 } # add_fetch_task
+
+sub schedule_next_fetch_task ($$$) {
+  my ($self, $fetch_key, $result) = @_;
+  return $self->db->select ('fetch_source', {
+    fetch_key => Dongry::Type->serialize ('text', $fetch_key),
+  }, fields => ['fetch_options', 'schedule_options'])->then (sub {
+    my @all = @{$_[0]->all};
+    return undef unless @all;
+    my $fetch_options = Dongry::Type->parse
+        ('json', $all[0]->{fetch_options});
+    my @schedule_options = map {
+      Dongry::Type->parse ('json', $_->{schedule_options});
+    } @all;
+
+    my $every;
+    for my $options (@schedule_options) {
+      if (defined $options->{every_seconds}) {
+        $every = $options->{every_seconds}
+            if not defined $every or
+               $every > $options->{every_seconds};
+      }
+    }
+    return undef unless defined $every;
+
+    $every = 1 if $every < 1;
+    return $self->add_fetch_task
+        ($fetch_options, delta => $every, result => $result);
+  });
+} # schedule_next_fetch_task
 
 my $ProcessTimeout = 60; # XXX 60*60;
 
@@ -116,6 +151,8 @@ sub run_task ($) {
         $result->{continue} = 1;
         return $db->delete ('fetch_task', {
           fetch_key => $data->{fetch_key},
+        })->then (sub {
+          return $self->schedule_next_fetch_task ($data->{fetch_key}, {});
         });
       });
     }
@@ -125,12 +162,18 @@ sub run_task ($) {
       running_since => {'<', time - $ProcessTimeout, '!=' => 0},
     });
   })->then (sub {
+    return $db->execute ('select run_after from fetch_task order by run_after asc limit 1')->then (sub {
+      my $d = $_[0]->first;
+      $result->{next_fetch_time} = $d->{run_after} if defined $d;
+      return $result;
+    }) unless $result->{continue};
     return $result;
   });
 } # run_task
 
 sub fetch ($$$$) {
   my ($self, $fetch_key, $options, $result) = @_;
+  # XXX skip if fetch_result is too new
   return Promise->new (sub {
     my ($ok, $ng) = @_;
     # XXX redirect

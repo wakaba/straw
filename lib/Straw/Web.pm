@@ -98,10 +98,14 @@ sub main ($$$) {
       my $fetch = Straw::Fetch->new_from_db ($db);
       if ($app->http->request_method eq 'POST') {
         # XXX CSRF
+        my $result = {};
         return $fetch->save_fetch_source
             ($path->[1],
              (json_bytes2perl $app->bare_param ('fetch_options') // ''),
-             (json_bytes2perl $app->bare_param ('schedule_options') // ''))->then (sub {
+             (json_bytes2perl $app->bare_param ('schedule_options') // ''),
+             $result)->then (sub {
+          $Worker->run ('fetch') # don't return
+              if defined $result->{next_fetch_time};
           return $class->send_json ($app, {});
         }, sub {
           if (ref $_[0] eq 'HASH') {
@@ -171,10 +175,14 @@ sub main ($$$) {
     return $app->throw_error (400, reason_phrase => 'Bad |type|')
         unless $type eq 'fetch_source';
     my $fetch = Straw::Fetch->new_from_db ($db);
+    my $result = {};
     return $fetch->save_fetch_source
         (undef,
          (json_bytes2perl ($app->bare_param ('fetch_options') // '')),
-         (json_bytes2perl ($app->bare_param ('schedule_options') // '')))->then (sub {
+         (json_bytes2perl ($app->bare_param ('schedule_options') // '')),
+         $result)->then (sub {
+      $Worker->run ('fetch') # don't return
+          if defined $result->{next_fetch_time};
       return $class->send_json ($app, {source_id => $_[0]});
     }, sub {
       if (ref $_[0] eq 'HASH') {

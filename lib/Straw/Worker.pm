@@ -38,19 +38,30 @@ sub terminate ($) {
 my $SleepSeconds = 30;
 my $MaxWorkers = 5;
 
-sub _after_run ($$) {
-  my ($self, $type) = @_;
+sub _after_run ($$$) {
+  my ($self, $type, $after) = @_;
   $self->{worker_count}->{$type}--;
   $self->{worker_count}->{all}--;
+  my $sleep = $SleepSeconds;
+  if (defined $after and $after < time + $sleep) {
+    $sleep = $after - time;
+    $sleep = 1 if $sleep < 1;
+  }
   if ($self->{terminate} and $self->{worker_count}->{all} <= 0) {
     my $db = delete $self->{db};
     return $db->disconnect;
   } elsif ($self->{worker_count}->{all} > 0) {
-    return;
+    if ($self->{worker_count}->{$type} > 0) {
+      return;
+    } else {
+      return wait_seconds ($sleep)->then (sub {
+        return $self->run ($type);
+      });
+    }
   } else {
     my $db = delete $self->{db};
     return $db->disconnect->then (sub {
-      return wait_seconds ($SleepSeconds);
+      return wait_seconds ($sleep);
     })->then (sub {
       if ($self->{terminate} and $self->{worker_count}->{all} <= 0) {
         my $db = delete $self->{db};
@@ -70,10 +81,16 @@ sub run ($$) {
   $self->{worker_count}->{all}++;
   my $cls = $type eq 'fetch' ? 'Straw::Fetch' : 'Straw::Process';
   my $mod = $cls->new_from_db ($self->db);
+  my $after;
   my $r; $r = sub {
+    $self->{active_worker_count}->{$type}++;
+    $self->{active_worker_count}->{all}++;
     return $mod->run_task->then (sub {
       my $more = $_[0];
+      $self->{active_worker_count}->{$type}--;
+      $self->{active_worker_count}->{all}--;
       $self->run ('process') if $more->{process}; # don't return
+      $after = $more->{next_fetch_time};
       return $r->() if $more->{continue};
     });
   }; # $r
@@ -82,7 +99,7 @@ sub run ($$) {
   })->then (sub {
     undef $mod;
     undef $r;
-    return $self->_after_run ($type);
+    return $self->_after_run ($type, $after);
   });
 } # run
 
