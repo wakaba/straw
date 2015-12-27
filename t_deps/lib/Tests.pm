@@ -198,6 +198,14 @@ sub create_source ($%) {
   });
 } # create_source
 
+push @EXPORT, qw(enqueue_task);
+sub enqueue_task ($$) {
+  my ($c, $source) = @_;
+  return POST ($c, qq{/source/$source->{source_id}/enqueue}, {})->then (sub {
+    die $_[0]->as_string unless $_[0]->code == 202;
+  });
+} # enqueue_task
+
 push @EXPORT, qw(create_sink);
 sub create_sink ($$) {
   my ($c, $stream) = @_;
@@ -222,10 +230,21 @@ sub create_stream ($) {
 push @EXPORT, qw(create_process);
 sub create_process ($$$$) {
   my ($c, $input => $steps => $output) = @_;
+  my @source_id;
+  my @stream_id;
+  for (ref $input eq 'ARRAY' ? @$input : $input) {
+    if (defined $_->{source_id}) {
+      push @source_id, $_->{source_id};
+    } elsif (defined $_->{stream_id}) {
+      push @stream_id, $_->{stream_id};
+    } else {
+      die "Bad input: |$_|";
+    }
+  }
   return POST ($c, q</process>, {
     process_options => perl2json_chars {
-      (defined $input->{source_id} ? (input_source_ids => [$input->{source_id}]) : ()),
-      (defined $input->{stream_id} ? (input_stream_ids => [$input->{stream_id}]) : ()),
+      (@source_id ? (input_source_ids => \@source_id) : ()),
+      (@stream_id ? (input_stream_ids => \@stream_id) : ()),
       steps => $steps,
       output_stream_id => $output->{stream_id},
     },

@@ -151,6 +151,7 @@ sub run_task ($) {
         $result->{continue} = 1;
         return $db->delete ('fetch_task', {
           fetch_key => $data->{fetch_key},
+          running_since => $time,
         })->then (sub {
           return $self->schedule_next_fetch_task ($data->{fetch_key}, {});
         });

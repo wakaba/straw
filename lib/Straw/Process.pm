@@ -1,6 +1,7 @@
 package Straw::Process;
 use strict;
 use warnings;
+use Time::HiRes qw(time);
 use Digest::SHA qw(sha1_hex);
 use JSON::PS;
 use Dongry::Type;
@@ -222,15 +223,21 @@ sub _save ($$$$) {
 sub add_process_task ($$;%) {
   my ($self, $process_ids, %args) = @_;
   return unless @$process_ids;
-  my $process_args = perl2json_bytes {fetch_key => $args{fetch_key},
-                                      stream_id => $args{stream_id}};
+  my $process_args = perl2json_bytes_for_record
+      {fetch_key => $args{fetch_key},
+       stream_id => $args{stream_id}};
+  my $process_args_key = sha1_hex $process_args;
   my $run_after = time + ($args{delta} || 0); # XXX duplicate vs run_after
   return $self->db->insert ('process_task', [map { {
     process_id => Dongry::Type->serialize ('text', $_),
     process_args => $process_args,
+    process_args_sha => $process_args_key,
     run_after => $run_after,
     running_since => 0,
-  } } @$process_ids], duplicate => 'ignore');
+  } } @$process_ids], duplicate => {
+    run_after => $self->db->bare_sql_fragment ('LEAST(VALUES(run_after),run_after)'),
+    running_since => 0,
+  });
 } # add_process_task
 
 my $ProcessTimeout = 60; # XXX 60*60;
@@ -265,6 +272,7 @@ sub run_task ($) {
         $result->{continue} = 1;
         return $db->delete ('process_task', {
           process_id => $data->{process_id},
+          running_since => $time,
         });
       });
     }

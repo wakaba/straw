@@ -7,6 +7,8 @@ use Dongry::Database;
 use Straw::Fetch;
 use Straw::Process;
 
+my $DEBUG = $ENV{WORKER_DEBUG};
+
 sub new_from_db_sources ($$) {
   return bless {db_sources => $_[1],
                 worker_count => {fetch => 0,
@@ -48,12 +50,15 @@ sub _after_run ($$$) {
     $sleep = 1 if $sleep < 1;
   }
   if ($self->{terminate} and $self->{worker_count}->{all} <= 0) {
+    warn "Worker $type - stop (all=$self->{worker_count}->{all} $type=$self->{worker_count}->{$type})\n" if $DEBUG;
     my $db = delete $self->{db};
     return $db->disconnect;
   } elsif ($self->{worker_count}->{all} > 0) {
     if ($self->{worker_count}->{$type} > 0) {
+      warn "Worker $type - stop (all=$self->{worker_count}->{all} $type=$self->{worker_count}->{$type})\n" if $DEBUG;
       return;
     } else {
+      warn "Worker $type - sleep $sleep (all=$self->{worker_count}->{all} $type=$self->{worker_count}->{$type})\n" if $DEBUG;
       return wait_seconds ($sleep)->then (sub {
         return $self->run ($type);
       });
@@ -61,12 +66,15 @@ sub _after_run ($$$) {
   } else {
     my $db = delete $self->{db};
     return $db->disconnect->then (sub {
+      warn "Worker $type - sleep (all=$self->{worker_count}->{all} $type=$self->{worker_count}->{$type})\n" if $DEBUG;
       return wait_seconds ($sleep);
     })->then (sub {
       if ($self->{terminate} and $self->{worker_count}->{all} <= 0) {
+        warn "Worker $type - stop (all=$self->{worker_count}->{all} $type=$self->{worker_count}->{$type})\n" if $DEBUG;
         my $db = delete $self->{db};
         return $db->disconnect;
       } else {
+        warn "Worker $type - continue (all=$self->{worker_count}->{all} $type=$self->{worker_count}->{$type})\n" if $DEBUG;
         return $self->run ($type);
       }
     });
@@ -79,6 +87,7 @@ sub run ($$) {
             $self->{worker_count}->{$type} + 1 > $MaxWorkers;
   $self->{worker_count}->{$type}++;
   $self->{worker_count}->{all}++;
+  warn "Worker $type - start (all=$self->{worker_count}->{all} $type=$self->{worker_count}->{$type})\n" if $DEBUG;
   my $cls = $type eq 'fetch' ? 'Straw::Fetch' : 'Straw::Process';
   my $mod = $cls->new_from_db ($self->db);
   my $after;

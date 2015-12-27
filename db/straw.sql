@@ -1,6 +1,6 @@
 create table if not exists `fetch_source` (
   `source_id` bigint unsigned not null,
-  `fetch_key` varbinary(80) not null,
+  `fetch_key` binary(80) not null,
   `fetch_options` mediumblob not null,
   `schedule_options` mediumblob not null,
   primary key (`source_id`),
@@ -8,7 +8,7 @@ create table if not exists `fetch_source` (
 ) default charset=binary engine=innodb;
 
 create table if not exists `fetch_task` (
-  `fetch_key` varbinary(80) not null,
+  `fetch_key` binary(80) not null,
   `fetch_options` mediumblob not null,
   `run_after` double not null,
   `running_since` double not null,
@@ -18,7 +18,7 @@ create table if not exists `fetch_task` (
 ) default charset=binary engine=innodb;
 
 create table if not exists `fetch_result` (
-  `fetch_key` varbinary(80) not null,
+  `fetch_key` binary(80) not null,
   `fetch_options` mediumblob not null,
   `result` mediumblob not null,
   `expires` double not null,
@@ -27,14 +27,14 @@ create table if not exists `fetch_result` (
 ) default charset=binary engine=innodb;
 
 create table if not exists `strict_fetch_subscription` (
-  `fetch_key` varbinary(80) not null,
+  `fetch_key` binary(80) not null,
   `process_id` bigint unsigned not null,
   primary key (`fetch_key`, `process_id`),
   key (`process_id`)
 ) default charset=binary engine=innodb;
 
 create table if not exists `origin_fetch_subscription` (
-  `origin_key` varbinary(80) not null,
+  `origin_key` binary(80) not null,
   `process_id` bigint unsigned not null,
   primary key (`origin_key`, `process_id`),
   key (`process_id`)
@@ -47,7 +47,7 @@ create table if not exists `stream` (
 
 create table if not exists `stream_item_data` (
   `stream_id` bigint unsigned not null,
-  `item_key` varbinary(40) not null,
+  `item_key` binary(40) not null,
   `channel_id` tinyint unsigned not null,
   `data` mediumblob not null,
   `timestamp` double not null,
@@ -67,13 +67,14 @@ create table if not exists `stream_subscription` (
 
 create table if not exists `process_task` (
   `process_id` bigint unsigned not null,
+  `process_args_sha` binary(40) not null,
   `process_args` mediumblob not null,
     -- fetch_key
     -- stream_id
     --   channel_id mappings
   `run_after` double not null,
   `running_since` double not null,
-  primary key (`process_id`),
+  primary key (`process_id`, `process_args_sha`),
   key (`run_after`),
   key (`running_since`)
 ) default charset=binary engine=innodb;
