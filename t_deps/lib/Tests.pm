@@ -12,6 +12,7 @@ use Promised::Mysqld;
 use JSON::PS;
 use MIME::Base64;
 use Web::UserAgent::Functions qw(http_post http_get);
+use Wanage::URL;
 use Test::More;
 use Test::X1;
 
@@ -35,6 +36,11 @@ my $HTTPServer;
 my $RemoteServer;
 
 my $root_path = path (__FILE__)->parent->parent->parent->absolute;
+
+push @EXPORT, qw(origin_of);
+sub origin_of ($) {
+  return Wanage::URL->new_from_string ($_[0] // '')->ascii_origin; # or undef
+} # origin_of
 
 sub remote_server (;$) {
   my $web_host = $_[0];
@@ -81,12 +87,17 @@ sub remote_server (;$) {
           }
         }
 
-        return $app->send_error (404);
+        return $app->send_error (404, reason_phrase => 'URL not registered');
       });
     };
   });
   return $RemoteServer;
 } # remote_server
+
+sub remote_url ($) {
+  my $host = $RemoteServer->get_host;
+  return qq<http://$host$_[0]>;
+} # remote_url
 
 push @EXPORT, qw(web_server);
 sub web_server (;$) {
@@ -107,6 +118,7 @@ sub web_server (;$) {
     $HTTPServer = Promised::Plackup->new;
     $HTTPServer->set_option ('--server' => 'Twiggy');
     $HTTPServer->envs->{APP_CONFIG} = $temp_path;
+    $HTTPServer->envs->{http_proxy} = remote_url q<>;
     return Promise->all ([
       Promised::File->new_from_path ($root_path->child ('db/straw.sql'))->read_byte_string->then (sub {
         return [grep { length } split /;/, $_[0]];
@@ -231,11 +243,14 @@ sub create_process ($$$$;%) {
   my ($c, $input => $steps => $output, %args) = @_;
   my @source_id;
   my @stream_id;
+  my @origin;
   for (ref $input eq 'ARRAY' ? @$input : $input) {
     if (defined $_->{source_id}) {
       push @source_id, $_->{source_id};
     } elsif (defined $_->{stream_id}) {
       push @stream_id, $_->{stream_id};
+    } elsif (defined $_->{origin}) {
+      push @origin, $_->{origin};
     } else {
       die "Bad input: |$_|";
     }
@@ -243,6 +258,7 @@ sub create_process ($$$$;%) {
   return POST ($c, q</process>, {
     process_options => perl2json_chars {
       (@source_id ? (input_source_ids => \@source_id) : ()),
+      (@origin ? (input_origins => \@origin) : ()),
       (@stream_id ? (input_stream_ids => \@stream_id) : ()),
       input_channel_mappings => $args{channel_map},
       steps => $steps,
@@ -284,28 +300,28 @@ sub wait_drain ($) {
   return $try->()->then (sub { undef $try });
 } # wait_drain
 
-sub remote_url ($) {
-  my $host = $RemoteServer->get_host;
-  return qq<http://$host$_[0]>;
-} # remote_url
-
 push @EXPORT, qw(remote);
 sub remote ($$) {
   my ($c, $eps) = @_;
   my $p = Promise->resolve;
   my $host = $RemoteServer->get_host;
   my $dir_path = q</> . rand . q</>;
+  my $origin_prefix = q<http://> . rand;
   my $result = {};
   for my $key (keys %$eps) {
     my $path = $dir_path . $key;
     my $headers = {};
     my $body = $eps->{$key};
+    my $opts = {};
     if (defined $body and ref $body eq 'ARRAY') {
-      $headers = $body->[0];
-      $body = $body->[1];
+      ($headers, $body, $opts) = @$body;
     }
-    $body =~ s{\@\@URLDIR\@\@}{http://$host$dir_path}g;
+    my $origin = qq{http://$host};
+    if (defined $opts->{origin}) {
+      $origin = qq{$origin_prefix.$opts->{origin}};
+    }
     $p = $p->then (sub {
+      $body =~ s{\@\@URL\{([^{}]*)\}\@\@}{$result->{$1}}g;
       return Promise->new (sub {
         my ($ok, $ng) = @_;
         http_post
@@ -320,7 +336,7 @@ sub remote ($$) {
             };
       });
     });
-    $result->{$key} = qq<http://$host$path>;
+    $result->{$key} = qq<$origin$path>;
   }
   return $p->then (sub { return $result });
 } # remote

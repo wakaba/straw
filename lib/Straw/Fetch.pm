@@ -8,6 +8,7 @@ use Dongry::Type;
 use Dongry::Type::JSONPS;
 use Promise;
 use Web::UserAgent::Functions qw(http_get);
+use Wanage::URL;
 use Straw::Process;
 
 sub new_from_db ($$) {
@@ -33,10 +34,15 @@ sub load_fetch_source_by_id ($$) {
 sub serialize_fetch ($) {
   my $fetch_options = $_[0];
   my $url = Dongry::Type->serialize ('text', $fetch_options->{url} // '');
+  my $origin = Wanage::URL->new_from_string ($fetch_options->{url} // '')->ascii_origin;
   $fetch_options = perl2json_bytes_for_record $fetch_options;
   my $fetch_key = sha1_hex $url;
   $fetch_key .= sha1_hex $fetch_options;
-  return ($fetch_key, $fetch_options);
+  my $origin_key;
+  if (defined $origin) {
+    $origin_key = sha1_hex +Dongry::Type->serialize ('text', $origin);
+  }
+  return ($fetch_key, $fetch_options, $origin_key);
 } # serialize_fetch
 
 sub save_fetch_source ($$$$$) {
@@ -46,7 +52,8 @@ sub save_fetch_source ($$$$$) {
   return Promise->reject ({status => 400, reason => "Bad |schedule_options|"})
       unless defined $schedule_options and ref $schedule_options eq 'HASH';
   my $fetch_key;
-  ($fetch_key, $fetch_options) = serialize_fetch $fetch_options;
+  my $origin_key;
+  ($fetch_key, $fetch_options, $origin_key) = serialize_fetch $fetch_options;
   my $p = Promise->resolve;
   if (defined $source_id) {
     $p = $p->then (sub {
@@ -68,6 +75,7 @@ sub save_fetch_source ($$$$$) {
     return $self->db->insert ('fetch_source', [{
       source_id => Dongry::Type->serialize ('text', $source_id),
       fetch_key => $fetch_key,
+      origin_key => $origin_key,
       fetch_options => $fetch_options,
       schedule_options => Dongry::Type->serialize ('json', $schedule_options),
     }], duplicate => 'replace');
@@ -81,7 +89,7 @@ sub save_fetch_source ($$$$$) {
 sub add_fetch_task ($$;%) {
   my ($self, $fetch_options, %args) = @_;
   my $fetch_key;
-  ($fetch_key, $fetch_options) = serialize_fetch $fetch_options;
+  ($fetch_key, $fetch_options, undef) = serialize_fetch $fetch_options;
   my $after = $args{result}->{next_fetch_time} = time + ($args{delta} || 0);
   return $self->db->insert ('fetch_task', [{
     fetch_key => $fetch_key,
@@ -174,7 +182,9 @@ sub run_task ($) {
 
 sub fetch ($$$$) {
   my ($self, $fetch_key, $options, $result) = @_;
-  # XXX skip if fetch_result is too new
+  # XXX skip if fetch_result is too new and not superreload
+  my $origin = Wanage::URL->new_from_string ($options->{url} // '')->ascii_origin;
+  my $process = Straw::Process->new_from_db ($self->db);
   return Promise->new (sub {
     my ($ok, $ng) = @_;
     # XXX redirect
@@ -197,7 +207,6 @@ sub fetch ($$$$) {
       expires => $db->bare_sql_fragment ('GREATEST(VALUES(expires),expires)'),
     });
   })->then (sub {
-    my $process = Straw::Process->new_from_db ($self->db);
     return $self->db->select ('strict_fetch_subscription', {
       fetch_key => Dongry::Type->serialize ('text', $fetch_key),
     }, fields => ['process_id'])->then (sub {
@@ -205,7 +214,17 @@ sub fetch ($$$$) {
       return $process->add_process_task
           ([map { $_->{process_id} } @{$_[0]->all}], fetch_key => $fetch_key);
     });
-    # XXX origin_fetch_subscription
+  })->then (sub {
+    return unless defined $origin;
+    my $key = sha1_hex +Dongry::Type->serialize ('text', $origin);
+    return $self->db->select ('origin_fetch_subscription', {
+      origin_key => Dongry::Type->serialize ('text', $key),
+    }, fields => ['process_id'])->then (sub {
+      $result->{process} = 1;
+      return $process->add_process_task
+          ([map { $_->{process_id} } @{$_[0]->all}],
+           fetch_key => $fetch_key);
+    });
   });
 } # fetch
 

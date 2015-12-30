@@ -75,7 +75,28 @@ sub save_process ($$) {
         process_id => $process_id,
       });
     }
-    # XXX origin subscription
+  })->then (sub {
+    my $origins = $process_options->{input_origins};
+    return [] unless defined $origins and ref $origins eq 'ARRAY';
+    my %found;
+    return [grep { not $found{$_}++ } map { sha1_hex +Dongry::Type->serialize ('text', $_) } @$origins];
+  })->then (sub {
+    my $keys = $_[0];
+    if (@$keys) {
+      return $self->db->insert ('origin_fetch_subscription', [map { {
+        origin_key => $_,
+        process_id => $process_id,
+      } } @$keys], duplicate => 'ignore')->then (sub {
+        return $self->db->delete ('origin_fetch_subscription', {
+          origin_key => {-not_in => $keys},
+          process_id => $process_id,
+        });
+      });
+    } else {
+      return $self->db->delete ('origin_fetch_subscription', {
+        process_id => $process_id,
+      });
+    }
   })->then (sub {
     my $stream_ids = $process_options->{input_stream_ids};
     if (defined $stream_ids and ref $stream_ids eq 'ARRAY' and

@@ -1,10 +1,12 @@
 create table if not exists `fetch_source` (
   `source_id` bigint unsigned not null,
   `fetch_key` binary(80) not null,
+  `origin_key` binary(40) default null,
   `fetch_options` mediumblob not null,
   `schedule_options` mediumblob not null,
   primary key (`source_id`),
-  key (`fetch_key`)
+  key (`fetch_key`),
+  key (`origin_key`)
 ) default charset=binary engine=innodb;
 
 create table if not exists `fetch_task` (
@@ -34,7 +36,7 @@ create table if not exists `strict_fetch_subscription` (
 ) default charset=binary engine=innodb;
 
 create table if not exists `origin_fetch_subscription` (
-  `origin_key` binary(80) not null,
+  `origin_key` binary(40) not null,
   `process_id` bigint unsigned not null,
   primary key (`origin_key`, `process_id`),
   key (`process_id`)
@@ -84,6 +86,7 @@ create table if not exists `process` (
   `process_id` bigint unsigned not null,
   `process_options` mediumblob not null,
     -- input_sources_ids
+    -- input_origins
     -- input_stream_ids
     -- input_channel_mappings
     --   {$stream_id: {$channel_id: $channel_id}}

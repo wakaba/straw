@@ -174,6 +174,7 @@ test {
       is $res->code, 200;
       is $json->{type}, 'fetch_source';
       like $json->{fetch}->{fetch_key}, qr{^[0-9a-f]{80}$};
+      is $json->{fetch}->{origin_key}, undef;
       is $json->{fetch}->{fetch_options}->{a}, undef;
       is $json->{fetch}->{fetch_options}->{c}, 55;
       is $json->{fetch}->{schedule_options}->{b}, undef;
@@ -182,7 +183,67 @@ test {
       like $res->content, qr{"source_id"\s*:\s*"};
     } $c;
   })->then (sub { done $c; undef $c });
-} wait => $wait, n => 11, name => '/source/{source_id} GET';
+} wait => $wait, n => 12, name => '/source/{source_id} GET';
+
+test {
+  my $c = shift;
+  return POST ($c, q</source>, {
+    type => 'fetch_source',
+    fetch_options => '{"url":"https://hoge.test/foo/bar"}',
+    schedule_options => '{"b":2}',
+  })->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+      ok $json->{source_id};
+      like $res->content, qr{"source_id"\s*:\s*"};
+    } $c;
+    return GET ($c, qq{/source/$json->{source_id}});
+  })->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+      is $json->{type}, 'fetch_source';
+      like $json->{fetch}->{fetch_key}, qr{^[0-9a-f]{80}$};
+      like $json->{fetch}->{origin_key}, qr{^[0-9a-f]{40}$};
+      is $json->{fetch}->{schedule_options}->{b}, 2;
+      is $json->{source_id}, $json->{source_id};
+      like $res->content, qr{"source_id"\s*:\s*"};
+    } $c;
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 10, name => '/source POST fetch_source with origin_key';
+
+test {
+  my $c = shift;
+  return POST ($c, q</source>, {
+    type => 'fetch_source',
+    fetch_options => '{"url":"about:hoge.test/foo/bar"}',
+    schedule_options => '{"b":2}',
+  })->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+      ok $json->{source_id};
+      like $res->content, qr{"source_id"\s*:\s*"};
+    } $c;
+    return GET ($c, qq{/source/$json->{source_id}});
+  })->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+      is $json->{type}, 'fetch_source';
+      like $json->{fetch}->{fetch_key}, qr{^[0-9a-f]{80}$};
+      is $json->{fetch}->{origin_key}, undef;
+      is $json->{fetch}->{schedule_options}->{b}, 2;
+      is $json->{source_id}, $json->{source_id};
+      like $res->content, qr{"source_id"\s*:\s*"};
+    } $c;
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 10, name => '/source POST fetch_source with no origin_key';
 
 run_tests;
 stop_web_server;
