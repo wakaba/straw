@@ -294,16 +294,17 @@ sub remote ($$) {
   my ($c, $eps) = @_;
   my $p = Promise->resolve;
   my $host = $RemoteServer->get_host;
-  my $path = q</> . rand . q</>;
+  my $dir_path = q</> . rand . q</>;
   my $result = {};
   for my $key (keys %$eps) {
-    my $path = $path . $key;
+    my $path = $dir_path . $key;
     my $headers = {};
     my $body = $eps->{$key};
     if (defined $body and ref $body eq 'ARRAY') {
       $headers = $body->[0];
       $body = $body->[1];
     }
+    $body =~ s{\@\@URLDIR\@\@}{http://$host$dir_path}g;
     $p = $p->then (sub {
       return Promise->new (sub {
         my ($ok, $ng) = @_;

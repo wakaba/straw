@@ -66,6 +66,7 @@ create table if not exists `stream_subscription` (
 ) default charset=binary engine=innodb;
 
 create table if not exists `process_task` (
+  `task_id` bigint unsigned not null,
   `process_id` bigint unsigned not null,
   `process_args_sha` binary(40) not null,
   `process_args` mediumblob not null,
@@ -73,7 +74,8 @@ create table if not exists `process_task` (
     -- stream_id
   `run_after` double not null,
   `running_since` double not null,
-  primary key (`process_id`, `process_args_sha`),
+  primary key (`task_id`),
+  unique key (`process_id`, `process_args_sha`),
   key (`run_after`),
   key (`running_since`)
 ) default charset=binary engine=innodb;

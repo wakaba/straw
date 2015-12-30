@@ -10,7 +10,9 @@ begin
       where running_since = 0 and run_after <= `time`
       order by run_after asc limit 1;
   update process_task set running_since = `time`
-      where process_id = @process_id;
+      where process_id = @process_id and
+            running_since = 0 and
+            run_after <= `time`;
   commit;
 end
 

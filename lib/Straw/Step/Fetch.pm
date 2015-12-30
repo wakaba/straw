@@ -36,4 +36,21 @@ $Straw::Step->{httpres_to_doc} = {
   },
 }; # httpres_to_doc
 
+use Straw::Fetch;
+$Straw::ItemStep->{fetch_item_url} = sub {
+  my $item = $_[0];
+  my $self = $_[2];
+  my $result = $_[3];
+  my $url = $item->{0}->{props}->{url};
+  if (defined $url) {
+    my $fetch = Straw::Fetch->new_from_db ($self->db); # XXX
+    # XXX return
+    $fetch->add_fetch_task ({
+      url => $url,
+    });
+    $result->{fetch} = 1;
+  }
+  return $item;
+}; # fetch_item_url
+
 1;

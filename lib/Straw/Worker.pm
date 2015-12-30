@@ -98,6 +98,7 @@ sub run ($$) {
       my $more = $_[0];
       $self->{active_worker_count}->{$type}--;
       $self->{active_worker_count}->{all}--;
+      $self->run ('fetch') if $more->{fetch}; # don't return
       $self->run ('process') if $more->{process}; # don't return
       $after = $more->{next_fetch_time};
       return $r->() if $more->{continue};

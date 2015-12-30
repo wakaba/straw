@@ -103,7 +103,7 @@ sub save_process ($$) {
 sub run_process ($$$$) {
   my ($self, $process_options, $process_args, $result) = @_;
   return $self->_load ($process_options, $process_args)->then (sub {
-    return $self->_steps ($process_options, $_[0]);
+    return $self->_steps ($process_options, $_[0], $result);
   })->then (sub {
     return $self->_save ($process_options, $_[0], $result);
   });
@@ -157,7 +157,7 @@ sub _load ($$$) {
       return $self->db->select ('stream_item_data', {
         stream_id => Dongry::Type->serialize ('text', $dest_stream_id),
         item_key => {-in => \@item_key},
-      }, fields => ['data', 'channel_id'])->then (sub {
+      }, fields => ['data', 'channel_id', 'item_key'])->then (sub {
         for (@{$_[0]->all}) {
           my $key = $_->{item_key};
           next unless defined $key;
@@ -176,8 +176,8 @@ sub _load ($$$) {
   die "Bad process argument";
 } # _load
 
-sub _steps ($$$) {
-  my ($self, $process_options, $input) = @_;
+sub _steps ($$$$) {
+  my ($self, $process_options, $input, $result) = @_;
   die "No steps defined"
       if not defined $process_options->{steps} or
          not ref $process_options->{steps} eq 'ARRAY';
@@ -200,7 +200,7 @@ sub _steps ($$$) {
             my $step = $_[1];
             my $items = [];
             for my $item (@{$_[2]->{items}}) {
-              push @$items, $code->($item, $step); # XXX args
+              push @$items, $code->($item, $step, $_[0], $result); # XXX args # XXX promise
               # XXX validation
             }
             return {type => 'Stream', items => $items};
@@ -275,6 +275,7 @@ sub add_process_task ($$;%) {
   my $process_args_key = sha1_hex $process_args;
   my $run_after = time + ($args{delta} || 0); # XXX duplicate vs run_after
   return $self->db->insert ('process_task', [map { {
+    task_id => $self->db->bare_sql_fragment ('uuid_short ()'),
     process_id => Dongry::Type->serialize ('text', $_),
     process_args => $process_args,
     process_args_sha => $process_args_key,
@@ -298,28 +299,36 @@ sub run_task ($) {
   })->then (sub {
     return $db->select ('process_task', {
       running_since => $time,
-    }, fields => ['process_id', 'process_args'], source_name => 'master');
+    }, fields => ['process_id', 'process_args', 'task_id'], source_name => 'master');
   })->then (sub {
     my $p = Promise->resolve (0);
-    for my $data (@{$_[0]->all}) {
+    my @data = @{$_[0]->all} or return $p;
+    my $process_id = $data[0]->{process_id};
+    my $process_options;
+    $p = $p->then (sub {
+      return $self->load_process_by_id ($process_id);
+    })->then (sub {
+      die "Process |$process_id| not found" unless defined $_[0];
+      $process_options = Dongry::Type->parse ('json', $_[0]->{process_options});
+    });
+    my @task_id;
+    for my $data (@data) { # any $data in @data has $same $data->{process_id}
       my $args = Dongry::Type->parse ('json', $data->{process_args});
-      return $p = $p->then (sub {
-        return $self->load_process_by_id ($data->{process_id});
-      })->then (sub {
-        die "Process |$data->{process_id}| not found" unless defined $_[0];
-        my $options = Dongry::Type->parse ('json', $_[0]->{process_options});
-        return $self->run_process ($options, $args, $result);
+      $p = $p->then (sub {
+        return $self->run_process ($process_options, $args, $result);
       })->catch (sub {
         warn $_[0]; # XXX error reporting
-      })->then (sub {
-        $result->{continue} = 1;
-        return $db->delete ('process_task', {
-          process_id => $data->{process_id},
-          running_since => $time,
-        });
       });
+      push @task_id, $data->{task_id};
     }
-    return $p;
+    return $p->then (sub {
+      $result->{continue} = 1;
+      return $db->delete ('process_task', {
+        task_id => {-in => \@task_id},
+        #process_id => $process_id,
+        #running_since => $time,
+      });
+    });
   })->then (sub {
     return $db->delete ('process_task', {
       running_since => {'<', time - $ProcessTimeout, '!=' => 0},
