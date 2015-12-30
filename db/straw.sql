@@ -71,7 +71,6 @@ create table if not exists `process_task` (
   `process_args` mediumblob not null,
     -- fetch_key
     -- stream_id
-    --   channel_id mappings
   `run_after` double not null,
   `running_since` double not null,
   primary key (`process_id`, `process_args_sha`),
@@ -82,6 +81,10 @@ create table if not exists `process_task` (
 create table if not exists `process` (
   `process_id` bigint unsigned not null,
   `process_options` mediumblob not null,
+    -- input_sources_ids
+    -- input_stream_ids
+    -- input_channel_mappings
+    --   {$stream_id: {$channel_id: $channel_id}}
     -- steps
     -- output_stream_id
   primary key (`process_id`)

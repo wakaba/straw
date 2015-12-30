@@ -56,7 +56,7 @@ $Straw::Step->{parse_html} = {
         }
       }
 
-      push @{$out->{items}}, $item if keys %$item;
+      push @{$out->{items}}, {0 => $item} if keys %$item;
     }
     return $out;
   },

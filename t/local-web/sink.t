@@ -29,6 +29,7 @@ test {
 
 test {
   my $c = shift;
+  my $sink_id;
   return POST ($c, q</sink>, {
     stream_id => 1253333,
   })->then (sub {
@@ -36,22 +37,95 @@ test {
     my $json = json_bytes2perl $res->content;
     test {
       is $res->code, 200;
-      ok $json->{sink_id};
+      ok $sink_id = $json->{sink_id};
       like $res->content, qr{"sink_id"\s*:\s*"};
     } $c;
-    return GET ($c, qq{/sink/$json->{sink_id}});
+    return GET ($c, qq{/sink/$sink_id});
   })->then (sub {
     my $res = $_[0];
     my $json = json_bytes2perl $res->content;
     test {
       is $res->code, 200;
-      is $json->{sink_id}, $json->{sink_id};
+      is $json->{sink_id}, $sink_id;
       like $res->content, qr{"sink_id"\s*:\s*"};
       is $json->{stream_id}, 1253333;
       like $res->content, qr{"stream_id"\s*:\s*"};
+      is $json->{channel_id}, 0;
+    } $c;
+    return POST ($c, qq{/sink/$json->{sink_id}}, {
+      stream_id => 452,
+      channel_id => 52,
+    });
+  })->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+    } $c;
+    return GET ($c, qq{/sink/$sink_id});
+  })->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+      is $json->{sink_id}, $sink_id;
+      like $res->content, qr{"sink_id"\s*:\s*"};
+      is $json->{stream_id}, 452;
+      like $res->content, qr{"stream_id"\s*:\s*"};
+      is $json->{channel_id}, 52;
     } $c;
   })->then (sub { done $c; undef $c });
-} wait => $wait, n => 8, name => '/sink POST';
+} wait => $wait, n => 16, name => '/sink POST';
+
+test {
+  my $c = shift;
+  my $sink_id;
+  return POST ($c, q</sink>, {
+    stream_id => 1253333,
+    channel_id => 4,
+  })->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+      ok $sink_id = $json->{sink_id};
+      like $res->content, qr{"sink_id"\s*:\s*"};
+    } $c;
+    return GET ($c, qq{/sink/$sink_id});
+  })->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+      is $json->{sink_id}, $sink_id;
+      like $res->content, qr{"sink_id"\s*:\s*"};
+      is $json->{stream_id}, 1253333;
+      like $res->content, qr{"stream_id"\s*:\s*"};
+      is $json->{channel_id}, 4;
+    } $c;
+    return POST ($c, qq{/sink/$sink_id}, {
+      stream_id => 452,
+    });
+  })->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+    } $c;
+    return GET ($c, qq{/sink/$sink_id});
+  })->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+      is $json->{sink_id}, $sink_id;
+      like $res->content, qr{"sink_id"\s*:\s*"};
+      is $json->{stream_id}, 452;
+      like $res->content, qr{"stream_id"\s*:\s*"};
+      is $json->{channel_id}, 0;
+    } $c;
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 16, name => '/sink POST, channel_id';
 
 test {
   my $c = shift;

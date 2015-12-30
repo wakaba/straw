@@ -19,8 +19,8 @@ $Straw::Step->{dump_stream} = {
 
 $Straw::ItemStep->{use_url_as_key} = sub {
   my $item = $_[0];
-  my $v = $item->{props}->{url};
-  $item->{props}->{key} = $v if defined $v;
+  my $v = $item->{0}->{props}->{url};
+  $item->{0}->{props}->{key} = $v if defined $v;
   return $item;
 }; # use_url_as_key
 
@@ -30,8 +30,8 @@ $Straw::ItemStep->{select_props} = sub {
   my @field = (defined $step->{fields} && ref $step->{fields} eq 'ARRAY')
       ? @{$step->{fields} || []} : ();
   for (@field) {
-    $out->{props}->{$_} = $item->{props}->{$_}
-        if defined $item->{props}->{$_};
+    $out->{0}->{props}->{$_} = $item->{0}->{props}->{$_}
+        if defined $item->{0}->{props}->{$_};
   }
   return $out;
 }; # select_props

@@ -253,12 +253,29 @@ sub main ($$$) {
     if (@$path == 2) {
       # /sink/{sink_id}
       my $sink = Straw::Sink->new_from_db ($db);
-      return $sink->load_sink_by_id ($path->[1])->then (sub {
-        my $data = $_[0];
-        return $app->throw_error (404, reason_phrase => 'Sink not found')
-            unless defined $data;
-        return $class->send_json ($app, $data);
-      });
+      if ($app->http->request_method eq 'POST') {
+        # XXX CSRF
+        return $sink->save_sink
+            ($path->[1],
+             $app->bare_param ('stream_id'),
+             $app->bare_param ('channel_id'))->then (sub {
+          return $class->send_json ($app, {});
+        }, sub {
+          if (ref $_[0] eq 'HASH') {
+            return $app->throw_error
+                ($_[0]->{status}, reason_phrase => $_[0]->{reason});
+          } else {
+            die $_[0];
+          }
+        });
+      } else { # GET
+        return $sink->load_sink_by_id ($path->[1])->then (sub {
+          my $data = $_[0];
+          return $app->throw_error (404, reason_phrase => 'Sink not found')
+              unless defined $data;
+          return $class->send_json ($app, $data);
+        });
+      }
     } elsif (@$path == 3 and $path->[2] eq 'items') {
       # /sink/{sink_id}/items
       my $sink = Straw::Sink->new_from_db ($db);
@@ -281,7 +298,9 @@ sub main ($$$) {
     $app->requires_request_method ({POST => 1});
     # XXX CSRF
     my $sink = Straw::Sink->new_from_db ($db);
-    return $sink->save_sink ($app->bare_param ('stream_id'))->then (sub {
+    return $sink->save_sink
+        (undef,
+         $app->bare_param ('stream_id'), $app->bare_param ('channel_id'))->then (sub {
       my $sink_id = $_[0];
       return $class->send_json ($app, {sink_id => $sink_id});
     }, sub {

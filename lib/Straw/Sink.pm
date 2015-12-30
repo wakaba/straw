@@ -16,7 +16,7 @@ sub load_sink_by_id ($$) {
   my ($self, $sink_id) = @_;
   return $self->db->select ('sink', {
     sink_id => Dongry::Type->serialize ('text', $sink_id),
-  })->then (sub {
+  }, fields => ['sink_id', 'stream_id', 'channel_id'])->then (sub {
     my $d = $_[0]->first;
     return undef unless defined $d;
     $d->{sink_id} .= '';
@@ -25,20 +25,37 @@ sub load_sink_by_id ($$) {
   });
 } # load_sink_by_id
 
-sub save_sink ($$) {
-  my ($self, $stream_id) = @_;
+sub save_sink ($$$$) {
+  my ($self, $sink_id, $stream_id, $channel_id) = @_;
+
   return Promise->reject ({status => 400, reason => 'Bad |stream_id|'})
       unless defined $stream_id;
   # XXX validate stream_id
-  my $sink_id;
-  return $self->db->execute ('select uuid_short() as uuid', undef, source_name => 'master')->then (sub {
-    $sink_id = $_[0]->first->{uuid};
-  })->then (sub {
+
+  my $p = Promise->resolve;
+  if (defined $sink_id) {
+    $p = $p->then (sub {
+      return $self->db->select ('sink', {
+        sink_id => Dongry::Type->serialize ('text', $sink_id),
+      }, fields => ['sink_id'])->then (sub {
+        die {status => 404, reason => 'Sink not found'}
+            unless $_[0]->first;
+      });
+    });
+  } else {
+    $p = $p->then (sub {
+      return $self->db->execute ('select uuid_short() as uuid', undef, source_name => 'master');
+    })->then (sub {
+      $sink_id = $_[0]->first->{uuid};
+    });
+  }
+
+  return $p->then (sub {
     return $self->db->insert ('sink', [{
-      sink_id => $sink_id,
-      stream_id => $stream_id,
-      channel_id => 0, # XXX channel_id
-    }], duplicate => 'ignore');
+      sink_id => Dongry::Type->serialize ('text', $sink_id),
+      stream_id => Dongry::Type->serialize ('text', $stream_id),
+      channel_id => Dongry::Type->serialize ('text', $channel_id || 0),
+    }], duplicate => 'replace');
   })->then (sub {
     return ''.$sink_id;
   });

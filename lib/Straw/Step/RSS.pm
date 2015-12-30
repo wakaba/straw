@@ -23,7 +23,7 @@ $Straw::Step->{parse_rss} = {
           for my $el (@{$el->children}) {
             push @{$item->{props}->{$el->manakai_expanded_uri} ||= []}, $el->text_content;
           }
-          push @{$stream->{items}}, $item;
+          push @{$stream->{items}}, {0 => $item};
         }
       }
     }
@@ -35,16 +35,16 @@ $Straw::Step->{parse_rss} = {
 $Straw::ItemStep->{rss_basic} = sub {
   my $item = $_[0];
   {
-    my $v = $item->{props}->{'http://purl.org/rss/1.0/title'};
+    my $v = $item->{0}->{props}->{'http://purl.org/rss/1.0/title'};
     if (defined $v and @$v and length $v->[0]) {
-      $item->{props}->{title} = $v->[0];
+      $item->{0}->{props}->{title} = $v->[0];
     }
   }
   {
-    my $v = $item->{props}->{'http://purl.org/rss/1.0/link'};
+    my $v = $item->{0}->{props}->{'http://purl.org/rss/1.0/link'};
     if (defined $v and @$v and length $v->[0]) {
       my $x = url_to_canon_url $v->[0], 'about:blank';
-      $item->{props}->{url} = $x if defined $x;
+      $item->{0}->{props}->{url} = $x if defined $x;
     }
   }
   return $item;
@@ -52,20 +52,20 @@ $Straw::ItemStep->{rss_basic} = sub {
 
 $Straw::ItemStep->{rss_desc_text} = sub {
   my $item = $_[0];
-  my $v = $item->{props}->{'http://purl.org/rss/1.0/description'};
+  my $v = $item->{0}->{props}->{'http://purl.org/rss/1.0/description'};
   if (defined $v and @$v and length $v->[0]) {
-    $item->{props}->{desc_text} = $v->[0];
+    $item->{0}->{props}->{desc_text} = $v->[0];
   }
   return $item;
 }; # rss_desc_text
 
 $Straw::ItemStep->{dc_date_as_timestamp} = sub {
   my $item = $_[0];
-  my $v = $item->{props}->{'http://purl.org/dc/elements/1.1/date'};
+  my $v = $item->{0}->{props}->{'http://purl.org/dc/elements/1.1/date'};
   if (defined $v and @$v and length $v->[0]) {
     my $parser = Web::DateTime::Parser->new;
     my $dt = $parser->parse_w3c_dtf_string ($v->[0]);
-    $item->{props}->{timestamp} = $dt->to_unix_number if defined $dt;
+    $item->{0}->{props}->{timestamp} = $dt->to_unix_number if defined $dt;
   }
   return $item;
 }; # dc_date_as_timestamp

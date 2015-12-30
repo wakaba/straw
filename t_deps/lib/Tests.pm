@@ -207,11 +207,11 @@ sub enqueue_task ($$) {
 } # enqueue_task
 
 push @EXPORT, qw(create_sink);
-sub create_sink ($$) {
-  my ($c, $stream) = @_;
+sub create_sink ($$;%) {
+  my ($c, $stream, %args) = @_;
   return POST ($c, q</sink>, {
     stream_id => $stream->{stream_id},
-    channel_id => 0, # XXX
+    channel_id => $args{channel_id} || 0,
   })->then (sub {
     die $_[0]->as_string unless $_[0]->code == 200;
     return json_bytes2perl $_[0]->content;
@@ -228,8 +228,8 @@ sub create_stream ($) {
 } # create_stream
 
 push @EXPORT, qw(create_process);
-sub create_process ($$$$) {
-  my ($c, $input => $steps => $output) = @_;
+sub create_process ($$$$;%) {
+  my ($c, $input => $steps => $output, %args) = @_;
   my @source_id;
   my @stream_id;
   for (ref $input eq 'ARRAY' ? @$input : $input) {
@@ -245,6 +245,7 @@ sub create_process ($$$$) {
     process_options => perl2json_chars {
       (@source_id ? (input_source_ids => \@source_id) : ()),
       (@stream_id ? (input_stream_ids => \@stream_id) : ()),
+      input_channel_mappings => $args{channel_map},
       steps => $steps,
       output_stream_id => $output->{stream_id},
     },

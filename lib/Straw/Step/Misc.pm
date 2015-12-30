@@ -5,7 +5,7 @@ use Web::DOM::Document;
 
 $Straw::ItemStep->{bookmark_entry_image} = sub {
   my $item = $_[0];
-  my $v = $item->{props}->{'http://purl.org/rss/1.0/modules/content/encoded'};
+  my $v = $item->{0}->{props}->{'http://purl.org/rss/1.0/modules/content/encoded'};
   if (defined $v and @$v and length $v->[0]) {
     my $doc = new Web::DOM::Document;
     $doc->manakai_is_html (1);
@@ -21,7 +21,7 @@ $Straw::ItemStep->{bookmark_entry_image} = sub {
 
 $Straw::ItemStep->{cleanup_title} = sub {
   my $item = $_[0];
-  my $v = $item->{props}->{title};
+  my $v = $item->{0}->{props}->{title};
   if (defined $v) {
     $v =~ s/\s+/ /g;
     $v =~ s/^ //;

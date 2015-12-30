@@ -123,19 +123,36 @@ sub _load ($$$) {
     });
   } elsif (defined $process_args->{stream_id}) {
     my $src = $process_args->{stream_id};
+    my $map = {};
+    $map = $process_options->{input_channel_mappings}->{$src}
+        if defined $process_options->{input_channel_mappings} and
+           ref $process_options->{input_channel_mappings} eq 'HASH';
+    $map = {} unless defined $map and ref $map eq 'HASH';
     my $ref = 0; # XXX
     return $self->db->select ('stream_item_data', {
       stream_id => Dongry::Type->serialize ('text', $src),
-      # XXX channel_id
       updated => {'>', $ref},
-    }, fields => ['data'], order => ['updated', 'ASC'], limit => 10)->then (sub { # XXX
+    }, fields => ['data', 'channel_id', 'item_key'], order => ['updated', 'ASC'], limit => 10)->then (sub { # XXXlimit
       my $items = [];
+      my $item_by_key = {};
       for (@{$_[0]->all}) {
-        my $data = Dongry::Type->parse ('json', $_->{data});
-        push @$items, $data;
+        my $key = $_->{item_key};
+        my $item;
+        if (defined $key) {
+          if (defined $item_by_key->{$key}) {
+            $item = $item_by_key->{$key};
+          } else {
+            push @$items, $item = $item_by_key->{$key} = {};
+          }
+        } else {
+          push @$items, $item = {};
+        }
+        my $channel_id = 0+($map->{$_->{channel_id}} // $_->{channel_id});
+        $item->{$channel_id} = Dongry::Type->parse ('json', $_->{data});
       }
       return {type => 'Stream', items => $items};
     });
+    # XXX load data from other channels
   }
 
   die "Bad process argument";
@@ -198,24 +215,33 @@ sub _save ($$$$) {
   return Promise->resolve ($input) unless @{$input->{items}};
   my $updated = time;
   return $self->db->insert ('stream_item_data', [map {
-    # XXX $_->{props} ? check ??
-    my $timestamp = $_->{props}->{timestamp} || $updated;
-    my $key = sha1_hex (Dongry::Type->serialize ('text', $_->{props}->{key} // $timestamp));
-    +{
-      stream_id => Dongry::Type->serialize ('text', $stream_id),
-      item_key => $key,
-      channel_id => 0, # XXX
-      data => Dongry::Type->serialize ('json', $_),
-      timestamp => $timestamp,
-      updated => $updated,
-    };
+    my $item = $_;
+    map {
+      my $d = $item->{$_};
+      # XXX $d->{props} ? check ??
+      if (keys %{$d->{props}}) {
+        my $timestamp = $d->{props}->{timestamp} || $updated;
+        my $key = sha1_hex (Dongry::Type->serialize ('text', $d->{props}->{key} // $timestamp));
+        +{
+          stream_id => Dongry::Type->serialize ('text', $stream_id),
+          item_key => $key,
+          channel_id => $_,
+          data => Dongry::Type->serialize ('json', $d),
+          timestamp => $timestamp,
+          updated => $updated,
+         };
+      } else {
+        ();
+      }
+    } keys %$item;
   } reverse @{$input->{items}}], duplicate => 'replace')->then (sub {
     return $self->db->select ('stream_subscription', {
       stream_id => Dongry::Type->serialize ('text', $stream_id),
     }, fields => ['process_id'])->then (sub {
       $result->{process} = 1;
       return $self->add_process_task
-          ([map { $_->{process_id} } @{$_[0]->all}], stream_id => $stream_id);
+          ([map { $_->{process_id} } @{$_[0]->all}],
+           stream_id => $stream_id);
     });
   });
 } # _save
