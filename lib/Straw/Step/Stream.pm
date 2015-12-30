@@ -36,4 +36,18 @@ $Straw::ItemStep->{select_props} = sub {
   return $out;
 }; # select_props
 
+$Straw::ItemStep->{set_if_defined} = sub {
+  my ($item, $step) = @_;
+  my @field = (defined $step->{fields} && ref $step->{fields} eq 'ARRAY')
+      ? @{$step->{fields} || []} : ();
+  my $src_channel = $step->{source_channel_id} // 1;
+  for (@field) {
+    $item->{0}->{props}->{$_} = $item->{$src_channel}->{props}->{$_}
+         if defined $item->{0} and
+            defined $item->{$src_channel} and
+            defined $item->{$src_channel}->{props}->{$_};
+  }
+  return $item;
+}; # set_if_defined
+
 1;

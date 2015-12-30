@@ -122,23 +122,26 @@ sub _load ($$$) {
               res => HTTP::Response->parse ($_[0])};
     });
   } elsif (defined $process_args->{stream_id}) {
-    my $src = $process_args->{stream_id};
+    my $src_stream_id = $process_args->{stream_id};
     my $map = {};
-    $map = $process_options->{input_channel_mappings}->{$src}
+    $map = $process_options->{input_channel_mappings}->{$src_stream_id}
         if defined $process_options->{input_channel_mappings} and
            ref $process_options->{input_channel_mappings} eq 'HASH';
+    my $dest_stream_id = $process_options->{output_stream_id};
     $map = {} unless defined $map and ref $map eq 'HASH';
+    my $items = [];
     my $ref = 0; # XXX
     return $self->db->select ('stream_item_data', {
-      stream_id => Dongry::Type->serialize ('text', $src),
+      stream_id => Dongry::Type->serialize ('text', $src_stream_id),
       updated => {'>', $ref},
     }, fields => ['data', 'channel_id', 'item_key'], order => ['updated', 'ASC'], limit => 10)->then (sub { # XXXlimit
-      my $items = [];
       my $item_by_key = {};
+      my @item_key;
       for (@{$_[0]->all}) {
-        my $key = $_->{item_key};
         my $item;
+        my $key = $_->{item_key};
         if (defined $key) {
+          push @item_key, $key;
           if (defined $item_by_key->{$key}) {
             $item = $item_by_key->{$key};
           } else {
@@ -150,6 +153,21 @@ sub _load ($$$) {
         my $channel_id = 0+($map->{$_->{channel_id}} // $_->{channel_id});
         $item->{$channel_id} = Dongry::Type->parse ('json', $_->{data});
       }
+      return unless @item_key;
+      return $self->db->select ('stream_item_data', {
+        stream_id => Dongry::Type->serialize ('text', $dest_stream_id),
+        item_key => {-in => \@item_key},
+      }, fields => ['data', 'channel_id'])->then (sub {
+        for (@{$_[0]->all}) {
+          my $key = $_->{item_key};
+          next unless defined $key;
+          next unless defined $item_by_key->{$key};
+          $item_by_key->{$key}->{$_->{channel_id}}
+              //= Dongry::Type->parse ('json', $_->{data});
+        }
+        # XXX need lock?
+      });
+    })->then (sub {
       return {type => 'Stream', items => $items};
     });
     # XXX load data from other channels
@@ -214,7 +232,7 @@ sub _save ($$$$) {
 
   return Promise->resolve ($input) unless @{$input->{items}};
   my $updated = time;
-  return $self->db->insert ('stream_item_data', [map {
+  my @insert = (map {
     my $item = $_;
     map {
       my $d = $item->{$_};
@@ -234,7 +252,9 @@ sub _save ($$$$) {
         ();
       }
     } keys %$item;
-  } reverse @{$input->{items}}], duplicate => 'replace')->then (sub {
+  } reverse @{$input->{items}});
+  return unless @insert;
+  return $self->db->insert ('stream_item_data', \@insert, duplicate => 'replace')->then (sub {
     return $self->db->select ('stream_subscription', {
       stream_id => Dongry::Type->serialize ('text', $stream_id),
     }, fields => ['process_id'])->then (sub {
@@ -273,12 +293,9 @@ sub run_task ($) {
   my $db = $self->db;
   my $time = time;
   my $result = {};
-  return $db->update ('process_task', {
-    running_since => $time,
-  }, where => {
-    run_after => {'<=' => $time},
-    running_since => 0,
-  }, limit => 1, order => ['run_after', 'asc'])->then (sub {
+  return $db->execute ('call lock_process_task (:time)', {
+    time => $time,
+  })->then (sub {
     return $db->select ('process_task', {
       running_since => $time,
     }, fields => ['process_id', 'process_args'], source_name => 'master');

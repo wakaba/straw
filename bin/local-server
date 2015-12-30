@@ -29,22 +29,21 @@ my $done = sub {
 Promised::Command::Signals->add_handler (INT => $done);
 Promised::Command::Signals->add_handler (TERM => $done);
 
-sub db_sqls () {
-  my $file = Promised::File->new_from_path
-      ($root_path->child ('db/straw.sql'));
-  return $file->read_byte_string->then (sub {
-    return [split /;/, $_[0]];
-  });
-} # db_sqls
-
 my $db_dir = $root_path->child ('local/local-server/mysql');
 $db_dir->mkpath;
 $mysqld->set_db_dir ($db_dir);
 $mysqld->start->then (sub {
   my $dsn = $mysqld->get_dsn_string (dbname => 'straw_devel2');
   return Promise->all ([
-    db_sqls->then (sub {
-      return $mysqld->create_db_and_execute_sqls (straw_devel2 => $_[0]);
+    Promised::File->new_from_path ($root_path->child ('db/straw.sql'))->read_byte_string->then (sub {
+      return [grep { length } split /;/, $_[0]];
+    })->then (sub {
+      $mysqld->create_db_and_execute_sqls (straw_test => $_[0]);
+    }),
+    Promised::File->new_from_path ($root_path->child ('db/straw-procedures.sql'))->read_byte_string->then (sub {
+      return [grep { length } split /^\@\@\@\@$/m, $_[0]];
+    })->then (sub {
+      $mysqld->create_db_and_execute_sqls (straw_test => $_[0]);
     }),
     $config_file->write_byte_string (perl2json_bytes {
       alt_dsns => {master => {straw => $dsn}},

@@ -36,14 +36,6 @@ my $RemoteServer;
 
 my $root_path = path (__FILE__)->parent->parent->parent->absolute;
 
-sub db_sqls () {
-  my $file = Promised::File->new_from_path
-      ($root_path->child ('db/straw.sql'));
-  return $file->read_byte_string->then (sub {
-    return [split /;/, $_[0]];
-  });
-} # db_sqls
-
 sub remote_server (;$) {
   my $web_host = $_[0];
   my $cv = AE::cv;
@@ -116,7 +108,14 @@ sub web_server (;$) {
     $HTTPServer->set_option ('--server' => 'Twiggy');
     $HTTPServer->envs->{APP_CONFIG} = $temp_path;
     return Promise->all ([
-      db_sqls->then (sub {
+      Promised::File->new_from_path ($root_path->child ('db/straw.sql'))->read_byte_string->then (sub {
+        return [grep { length } split /;/, $_[0]];
+      })->then (sub {
+        $MySQLServer->create_db_and_execute_sqls (straw_test => $_[0]);
+      }),
+      Promised::File->new_from_path ($root_path->child ('db/straw-procedures.sql'))->read_byte_string->then (sub {
+        return [grep { length } split /^\@\@\@\@$/m, $_[0]];
+      })->then (sub {
         $MySQLServer->create_db_and_execute_sqls (straw_test => $_[0]);
       }),
       $temp_file->write_byte_string (perl2json_bytes +{

@@ -647,6 +647,150 @@ test {
   })->then (sub { done $c; undef $c });
 } wait => $wait, n => 12, name => 'channel mapped';
 
+test {
+  my $c = shift;
+  my $urls;
+  my $stream;
+  my $stream2;
+  my $stream3;
+  my $process;
+  my $process2;
+  my $process3;
+  my $source;
+  my $source2;
+  my $sink;
+  return remote ($c, {
+    a => [{'Content-Type' => 'text/xml'}, q{
+      <rdf:RDF
+        xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        xmlns="http://purl.org/rss/1.0/"
+        xmlns:dc="http://purl.org/dc/elements/1.1/"
+        xmlns:content="http://purl.org/rss/1.0/modules/content/">
+        <channel rdf:about="https://url/feed">
+          <title>Hoge Feed</title>
+          <link>https://url/</link>
+          <description>This is Hoge Feed</description>
+          <items>
+            <rdf:Seq>
+              <rdf:li rdf:resource="https://url/item/1" />
+              <rdf:li rdf:resource="https://url/item/2" />
+            </rdf:Seq>
+          </items>
+        </channel>
+        <item rdf:about="https://url/item/1.rss">
+          <title>Feed Entry 1</title>
+          <link>https://url/item/1</link>
+          <description>This is Feed Entry 1</description>
+          <content:encoded>
+            &lt;p lang=en>This is Feed Entry 1.&lt;/p>
+            &lt;p lang=ja>Kore ha Feed Entry 1 desu.&lt;/p>
+          </content:encoded>
+          <dc:date>2015-12-01T11:46:23+09:00</dc:date>
+        </item>
+      </rdf:RDF>
+    }],
+    b => [{'Content-Type' => 'text/xml'}, q{
+      <rdf:RDF
+        xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        xmlns="http://purl.org/rss/1.0/"
+        xmlns:dc="http://purl.org/dc/elements/1.1/"
+        xmlns:content="http://purl.org/rss/1.0/modules/content/">
+        <channel rdf:about="https://url/feed">
+          <title>Hoge Feed</title>
+          <link>https://url/</link>
+          <description>This is Hoge Feed</description>
+          <items>
+            <rdf:Seq>
+              <rdf:li rdf:resource="https://url/item/1" />
+              <rdf:li rdf:resource="https://url/item/2" />
+            </rdf:Seq>
+          </items>
+        </channel>
+        <item rdf:about="https://url/item/2.rss">
+          <title>Feed Entry 2</title>
+          <link>https://url/item/1</link>
+          <description>This is Feed Entry 2</description>
+          <content:encoded>
+            &lt;p lang=en>This is Feed Entry 2.&lt;/p>
+            &lt;p lang=ja>Kore ha Feed Entry 2 desu.&lt;/p>
+          </content:encoded>
+          <dc:date>2015-12-02T11:46:23+09:00</dc:date>
+        </item>
+      </rdf:RDF>
+    }],
+  })->then (sub {
+    $urls = $_[0];
+    return create_source ($c,
+      fetch => {url => $urls->{a}},
+    );
+  })->then (sub {
+    $source = $_[0];
+    return create_source ($c,
+      fetch => {url => $urls->{b}},
+    );
+  })->then (sub {
+    $source2 = $_[0];
+    return create_stream ($c);
+  })->then (sub {
+    $stream = $_[0];
+    return create_stream ($c);
+  })->then (sub {
+    $stream2 = $_[0];
+    return create_stream ($c);
+  })->then (sub {
+    $stream3 = $_[0];
+    return create_sink ($c, $stream3);
+  })->then (sub {
+    $sink = $_[0];
+    return create_process ($c, $source => [
+      {name => 'httpres_to_doc'},
+      {name => 'parse_rss'},
+      {name => 'rss_basic'},
+      {name => 'use_url_as_key'},
+      {name => 'dc_date_as_timestamp'},
+      {name => 'rss_desc_text'},
+    ] => $stream);
+  })->then (sub {
+    $process = $_[0];
+    return create_process ($c, $source2 => [
+      {name => 'httpres_to_doc'},
+      {name => 'parse_rss'},
+      {name => 'rss_basic'},
+      {name => 'use_url_as_key'},
+      {name => 'dc_date_as_timestamp'},
+      {name => 'rss_desc_text'},
+    ] => $stream2);
+  })->then (sub {
+    $process2 = $_[0];
+    return create_process ($c, [$stream, $stream2] => [
+      {name => 'set_if_defined', fields => ['desc_text']},
+    ] => $stream3, channel_map => {
+      $stream2->{stream_id} => {0 => 1},
+    });
+  })->then (sub {
+    $process3 = $_[0];
+    return enqueue_task ($c, $source);
+  })->then (sub {
+    return enqueue_task ($c, $source2);
+  })->then (sub {
+    return wait_drain $c;
+  })->then (sub {
+    return GET ($c, qq{/sink/$sink->{sink_id}/items});
+  })->then (sub {
+    my $res = $_[0];
+    test {
+      is $res->code, 200;
+      is $res->header ('Content-Type'), 'application/json; charset=utf-8';
+      my $json = json_bytes2perl $res->content;
+      is 0+@{$json->{items}}, 1;
+      my $item1 = $json->{items}->[0];
+      is $item1->{url}, q<https://url/item/1>;
+      is $item1->{title}, q<Feed Entry 1>;
+      is $item1->{desc_text}, q<This is Feed Entry 2>;
+    } $c;
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 6, name => 'copy data from another channel';
+
 run_tests;
 stop_web_server;
 
