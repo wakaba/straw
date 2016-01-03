@@ -6,14 +6,7 @@ use Digest::SHA qw(sha1_hex);
 use JSON::PS;
 use Dongry::Type;
 use Straw::Fetch;
-
-$Straw::Step ||= {};
-$Straw::ItemStep ||= {};
-use Straw::Step::Fetch;
-use Straw::Step::Stream;
-use Straw::Step::RSS;
-use Straw::Step::HTML;
-use Straw::Step::Misc;
+use Straw::Steps;
 
 sub new_from_db ($$) {
   return bless {db => $_[1]}, $_[0];
