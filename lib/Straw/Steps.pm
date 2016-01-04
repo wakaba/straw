@@ -49,9 +49,7 @@ $Straw::Step->{httpres_to_doc} = {
 
 use Straw::Fetch; # XXX
 $Straw::ItemStep->{fetch_item_url} = sub {
-  my $item = $_[0];
-  my $self = $_[2];
-  my $result = $_[3];
+  my ($self, $step, $item, $result) = @_;
   my $url = $item->{0}->{props}->{url};
   if (defined $url) {
     my $fetch = Straw::Fetch->new_from_db ($self->db); # XXX
@@ -93,7 +91,7 @@ $Straw::Step->{parse_rss} = {
 
 
 $Straw::ItemStep->{rss_basic} = sub {
-  my $item = $_[0];
+  my ($self, $step, $item, $result) = @_;
   {
     my $v = $item->{0}->{props}->{'http://purl.org/rss/1.0/title'};
     if (defined $v and @$v and length $v->[0]) {
@@ -111,7 +109,7 @@ $Straw::ItemStep->{rss_basic} = sub {
 }; # rss_basic
 
 $Straw::ItemStep->{rss_desc_text} = sub {
-  my $item = $_[0];
+  my ($self, $step, $item, $result) = @_;
   my $v = $item->{0}->{props}->{'http://purl.org/rss/1.0/description'};
   if (defined $v and @$v and length $v->[0]) {
     $item->{0}->{props}->{desc_text} = $v->[0];
@@ -120,7 +118,7 @@ $Straw::ItemStep->{rss_desc_text} = sub {
 }; # rss_desc_text
 
 $Straw::ItemStep->{dc_date_as_timestamp} = sub {
-  my $item = $_[0];
+  my ($self, $step, $item, $result) = @_;
   my $v = $item->{0}->{props}->{'http://purl.org/dc/elements/1.1/date'};
   if (defined $v and @$v and length $v->[0]) {
     my $parser = Web::DateTime::Parser->new;
@@ -199,14 +197,14 @@ $Straw::Step->{dump_stream} = {
 }; # dump_stream
 
 $Straw::ItemStep->{use_url_as_key} = sub {
-  my $item = $_[0];
+  my ($self, $step, $item, $result) = @_;
   my $v = $item->{0}->{props}->{url};
   $item->{0}->{props}->{key} = $v if defined $v;
   return $item;
 }; # use_url_as_key
 
 $Straw::ItemStep->{select_props} = sub {
-  my ($item, $step) = @_;
+  my ($self, $step, $item, $result) = @_;
   my $out = {};
   my @field = (defined $step->{fields} && ref $step->{fields} eq 'ARRAY')
       ? @{$step->{fields} || []} : ();
@@ -218,7 +216,7 @@ $Straw::ItemStep->{select_props} = sub {
 }; # select_props
 
 $Straw::ItemStep->{set_if_defined} = sub {
-  my ($item, $step) = @_;
+  my ($self, $step, $item, $result) = @_;
   my @field = (defined $step->{fields} && ref $step->{fields} eq 'ARRAY')
       ? @{$step->{fields} || []} : ();
   my $src_channel = $step->{source_channel_id} // 1;
@@ -232,7 +230,7 @@ $Straw::ItemStep->{set_if_defined} = sub {
 }; # set_if_defined
 
 $Straw::ItemStep->{bookmark_entry_image} = sub {
-  my $item = $_[0];
+  my ($self, $step, $item, $result) = @_;
   my $v = $item->{0}->{props}->{'http://purl.org/rss/1.0/modules/content/encoded'};
   if (defined $v and @$v and length $v->[0]) {
     my $doc = new Web::DOM::Document;
@@ -248,7 +246,7 @@ $Straw::ItemStep->{bookmark_entry_image} = sub {
 }; # bookmark_entry_image
 
 $Straw::ItemStep->{cleanup_title} = sub {
-  my $item = $_[0];
+  my ($self, $step, $item, $result) = @_;
   my $v = $item->{0}->{props}->{title};
   if (defined $v) {
     $v =~ s/\s+/ /g;

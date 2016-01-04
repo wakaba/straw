@@ -211,10 +211,10 @@ sub _steps ($$$$) {
         $act = {
           in_type => 'Stream',
           code => sub {
-            my $step = $_[1];
+            my ($self, $step, $input, $result) = @_;
             my $items = [];
-            for my $item (@{$_[2]->{items}}) {
-              push @$items, $code->($item, $step, $_[0], $result); # XXX args # XXX promise
+            for my $item (@{$input->{items}}) {
+              push @$items, $code->($self, $step, $item, $result); # XXX promise
               # XXX validation
             }
             return {type => 'Stream', items => $items};
@@ -229,7 +229,7 @@ sub _steps ($$$$) {
           not $act->{in_type} eq $input->{type}) {
         die "Input has different type |$input->{type}| from the expected type |$act->{in_type}|";
       }
-      return $act->{code}->($self, $step, $input);
+      return $act->{code}->($self, $step, $input, $result);
     });
   }
   return $p;
