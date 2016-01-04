@@ -68,32 +68,64 @@ $Straw::Step->{parse_rss} = {
     my $in = $_[2];
     my $doc_el = $in->{document}->document_element;
     my $stream = {type => 'Stream', props => {}, items => []};
-    if (defined $doc_el and $doc_el->manakai_element_type_match (q<http://www.w3.org/1999/02/22-rdf-syntax-ns#>, 'RDF')) {
-      for my $el (@{$doc_el->children}) {
-        if ($el->manakai_element_type_match ('http://purl.org/rss/1.0/', 'channel')) {
-          for my $el (@{$el->children}) {
-            unless ($el->manakai_element_type_match ('http://purl.org/rss/1.0/', 'items')) {
-              push @{$stream->{props}->{$el->manakai_expanded_uri} ||= []}, $el->text_content;
+    if (defined $doc_el) {
+      if ($doc_el->manakai_element_type_match (q<http://www.w3.org/1999/02/22-rdf-syntax-ns#>, 'RDF')) {
+        for my $el (@{$doc_el->children}) {
+          if ($el->manakai_element_type_match ('http://purl.org/rss/1.0/', 'channel')) {
+            for my $el (@{$el->children}) {
+              unless ($el->manakai_element_type_match ('http://purl.org/rss/1.0/', 'items')) {
+                push @{$stream->{props}->{$el->manakai_expanded_uri} ||= []}, $el->text_content;
+              }
             }
+          } elsif ($el->manakai_element_type_match ('http://purl.org/rss/1.0/', 'item')) {
+            my $item = {};
+            for my $el (@{$el->children}) {
+              push @{$item->{props}->{$el->manakai_expanded_uri} ||= []}, $el->text_content;
+            }
+            push @{$stream->{items}}, {0 => $item};
           }
-        } elsif ($el->manakai_element_type_match ('http://purl.org/rss/1.0/', 'item')) {
-          my $item = {};
-          for my $el (@{$el->children}) {
-            push @{$item->{props}->{$el->manakai_expanded_uri} ||= []}, $el->text_content;
+        }
+      } elsif ($doc_el->manakai_element_type_match ('http://www.w3.org/2005/Atom', 'feed')) {
+        for my $el (@{$doc_el->children}) {
+          if ($el->manakai_element_type_match ('http://www.w3.org/2005/Atom', 'entry')) {
+            my $item = {};
+            for my $el (@{$el->children}) {
+              if ($el->local_name eq 'link' and
+                  ($el->namespace_uri // '') eq 'http://www.w3.org/2005/Atom') {
+                my $rel = $el->rel;
+                $rel = q<http://www.iana.org/assignments/relation/alternate>
+                    unless length $rel;
+                my $val = {href => $el->href,
+                           hreflang => $el->hreflang,
+                           type => $el->type,
+                           title => $el->title};
+                for (qw(hreflang type title)) {
+                  delete $val->{$_} unless length $val->{$_};
+                }
+                push @{$item->{props}->{$rel} ||= []}, $val;
+              } else {
+                push @{$item->{props}->{$el->manakai_expanded_uri} ||= []}, $el->text_content;
+              }
+            }
+            push @{$stream->{items}}, {0 => $item};
           }
-          push @{$stream->{items}}, {0 => $item};
         }
       }
-    }
+    } # $doc_el
     return $stream;
   },
 }; # parse_rss
-
 
 $Straw::ItemStep->{rss_basic} = sub {
   my ($self, $step, $item, $result) = @_;
   {
     my $v = $item->{0}->{props}->{'http://purl.org/rss/1.0/title'};
+    if (defined $v and @$v and length $v->[0]) {
+      $item->{0}->{props}->{title} = $v->[0];
+    }
+  }
+  {
+    my $v = $item->{0}->{props}->{'http://www.w3.org/2005/Atomtitle'};
     if (defined $v and @$v and length $v->[0]) {
       $item->{0}->{props}->{title} = $v->[0];
     }
@@ -127,6 +159,17 @@ $Straw::ItemStep->{dc_date_as_timestamp} = sub {
   }
   return $item;
 }; # dc_date_as_timestamp
+
+$Straw::ItemStep->{atom_updated_as_timestamp} = sub {
+  my ($self, $step, $item, $result) = @_;
+  my $v = $item->{0}->{props}->{'http://www.w3.org/2005/Atomupdated'};
+  if (defined $v and @$v and length $v->[0]) {
+    my $parser = Web::DateTime::Parser->new;
+    my $dt = $parser->parse_rfc3339_xs_date_time_string ($v->[0]);
+    $item->{0}->{props}->{timestamp} = $dt->to_unix_number if defined $dt;
+  }
+  return $item;
+}; # atom_updated_as_timestamp
 
 $Straw::Step->{parse_html} = {
   in_type => 'Document',
@@ -196,12 +239,35 @@ $Straw::Step->{dump_stream} = {
   },
 }; # dump_stream
 
+$Straw::ItemStep->{use_alternate_link_as_url} = sub {
+  my ($self, $step, $item, $result) = @_;
+  my $v = $item->{0}->{props}->{q<http://www.iana.org/assignments/relation/alternate>};
+  if (defined $v and ref $v eq 'ARRAY') {
+    my @w = grep {
+      defined $_->{href} and length $_->{href};
+    } @$v;
+    if (@w) {
+      $item->{0}->{props}->{url} = $w[0]->{href};
+    }
+  }
+  return $item;
+}; # use_alternate_link_as_url
+
 $Straw::ItemStep->{use_url_as_key} = sub {
   my ($self, $step, $item, $result) = @_;
   my $v = $item->{0}->{props}->{url};
-  $item->{0}->{props}->{key} = $v if defined $v;
+  $item->{0}->{props}->{key} = $v if defined $v and length $v;
   return $item;
 }; # use_url_as_key
+
+$Straw::ItemStep->{use_atom_id_as_key} = sub {
+  my ($self, $step, $item, $result) = @_;
+  my $v = $item->{0}->{props}->{q<http://www.w3.org/2005/Atomid>};
+  if (defined $v and ref $v eq 'ARRAY' and @$v) {
+    $item->{0}->{props}->{key} = $v if length $v->[0];
+  }
+  return $item;
+}; # use_atom_id_as_key
 
 $Straw::ItemStep->{select_props} = sub {
   my ($self, $step, $item, $result) = @_;
@@ -261,7 +327,7 @@ $Straw::ItemStep->{cleanup_title} = sub {
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

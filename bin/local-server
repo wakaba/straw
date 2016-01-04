@@ -33,7 +33,7 @@ my $db_dir = $root_path->child ('local/local-server/mysql');
 $db_dir->mkpath;
 $mysqld->set_db_dir ($db_dir);
 $mysqld->start->then (sub {
-  my $dsn = $mysqld->get_dsn_string (dbname => 'straw_devel2');
+  my $dsn = $mysqld->get_dsn_string (dbname => 'straw_test');
   return Promise->all ([
     Promised::File->new_from_path ($root_path->child ('db/straw.sql'))->read_byte_string->then (sub {
       return [grep { length } split /;/, $_[0]];
