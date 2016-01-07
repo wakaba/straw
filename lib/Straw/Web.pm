@@ -310,12 +310,19 @@ sub main ($$$) {
         return $app->throw_error (404, reason_phrase => 'Sink not found')
             unless defined $data;
         my $stream = Straw::Stream->new_from_db ($db);
+        my $after = $app->bare_param ('after') || 0;
         return $stream->load_item_data
             (stream_id => $data->{stream_id},
              channel_id => $data->{channel_id},
-             # XXX page parameters
-            )->then (sub {
-          return $class->send_json ($app, {items => $_[0]});
+             after => $after)->then (sub {
+          my $items = $_[0];
+          my $next_after = @$items ? $items->[-1]->{timestamp} : $after;
+          return $class->send_json ($app, {
+            next_after => $next_after,
+            next_url => $app->http->url->resolve_string
+                ('items?after=' . $next_after)->stringify,
+            items => $items,
+          });
         });
       });
     }

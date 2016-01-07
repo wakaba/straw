@@ -42,9 +42,15 @@ sub load_item_data ($%) {
   return $self->db->select ('stream_item_data', {
     stream_id => Dongry::Type->serialize ('text', $args{stream_id}),
     channel_id => Dongry::Type->serialize ('text', $args{channel_id}),
-  }, fields => ['data'], order => ['timestamp', 'DESC'])->then (sub {
-    # XXX limit # XXX props
-    return [map { Dongry::Type->parse ('json', $_->{data})->{props} } @{$_[0]->all}];
+    updated => {'>', 0+($args{after} || 0)},
+  }, fields => ['data', 'updated'], order => ['updated', 'asc'], limit => 100)->then (sub {
+    # XXX props
+    return [map {
+      {
+        data => Dongry::Type->parse ('json', $_->{data})->{props},
+        timestamp => $_->{updated},
+      };
+    } @{$_[0]->all}];
   });
 } # load_item_data
 
