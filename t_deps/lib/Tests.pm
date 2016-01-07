@@ -9,6 +9,7 @@ use Promise;
 use Promised::File;
 use Promised::Plackup;
 use Promised::Mysqld;
+use Time::HiRes qw(time);
 use JSON::PS;
 use MIME::Base64;
 use Web::UserAgent::Functions qw(http_post http_get);
@@ -18,7 +19,7 @@ use Test::X1;
 
 our @EXPORT;
 
-push @EXPORT, grep { not /^\$/ } @Test::More::EXPORT, @Test::X1::EXPORT, @JSON::PS::EXPORT;
+push @EXPORT, grep { not /^\$/ } @Test::More::EXPORT, @Test::X1::EXPORT, @JSON::PS::EXPORT, 'time';
 
 sub import ($;@) {
   my $from_class = shift;

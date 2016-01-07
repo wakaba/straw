@@ -192,6 +192,19 @@ sub main ($$$) {
         die $_[0];
       }
     });
+  } elsif (@$path == 2 and $path->[0] eq 'source' and $path->[1] eq 'logs') {
+    # /source/logs
+    my $fetch = Straw::Fetch->new_from_db ($db);
+    my $after = $app->bare_param ('after') || 0;
+    return $fetch->load_error_logs (after => $after)->then (sub {
+      my $items = $_[0];
+      my $next_after = @$items ? $items->[-1]->{timestamp} : $after;
+      return $class->send_json ($app, {
+        next_after => $next_after,
+        next_url => $app->http->url->resolve_string ('logs?after=' . $next_after)->stringify,
+        items => $items,
+      });
+    });
   }
 
   if (@$path >= 2 and
@@ -351,7 +364,7 @@ sub send_json ($$$) {
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

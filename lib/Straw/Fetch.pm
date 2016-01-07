@@ -131,7 +131,7 @@ sub schedule_next_fetch_task ($$$) {
   });
 } # schedule_next_fetch_task
 
-my $ProcessTimeout = 60; # XXX 60*60;
+my $ProcessTimeout = 60*5;
 
 sub run_task ($) {
   my $self = $_[0];
@@ -153,8 +153,6 @@ sub run_task ($) {
       my $options = Dongry::Type->parse ('json', $data->{fetch_options});
       return $p = $p->then (sub {
         return $self->fetch ($data->{fetch_key}, $options, $result);
-      })->catch (sub {
-        warn $_[0]; # XXX error reporting
       })->then (sub {
         $result->{continue} = 1;
         return $db->delete ('fetch_task', {
@@ -184,6 +182,7 @@ sub fetch ($$$$) {
   my ($self, $fetch_key, $options, $result) = @_;
   # XXX skip if fetch_result is too new and not superreload
   my $origin = Wanage::URL->new_from_string ($options->{url} // '')->ascii_origin;
+  my $origin_key = defined $origin ? sha1_hex +Dongry::Type->serialize ('text', $origin) : undef;
   my $process = Straw::Process->new_from_db ($self->db);
   return Promise->new (sub {
     my ($ok, $ng) = @_;
@@ -191,9 +190,14 @@ sub fetch ($$$$) {
     http_get
         url => $options->{url},
         anyevent => 1,
+        timeout => $ProcessTimeout,
         cb => sub {
-          $ok->($_[1]);
-          # XXX 5xx, network error
+          if ($_[1]->code >= 590) { # network error
+            $ng->($_[1]);
+          } else {
+            $ok->($_[1]);
+            # XXX 4xx, 5xx
+          }
         };
   })->then (sub {
     my $db = $self->db;
@@ -215,16 +219,30 @@ sub fetch ($$$$) {
           ([map { $_->{process_id} } @{$_[0]->all}], fetch_key => $fetch_key);
     });
   })->then (sub {
-    return unless defined $origin;
-    my $key = sha1_hex +Dongry::Type->serialize ('text', $origin);
+    return unless defined $origin_key;
     return $self->db->select ('origin_fetch_subscription', {
-      origin_key => Dongry::Type->serialize ('text', $key),
+      origin_key => Dongry::Type->serialize ('text', $origin_key),
     }, fields => ['process_id'])->then (sub {
       $result->{process} = 1;
       return $process->add_process_task
           ([map { $_->{process_id} } @{$_[0]->all}],
            fetch_key => $fetch_key);
     });
+  })->catch (sub {
+    my $error = $_[0];
+    if (UNIVERSAL::isa ($error, 'HTTP::Response')) {
+      return $self->error
+          (message => $error->status_line,
+           fetch_key => $fetch_key,
+           origin_key => $origin_key,
+           fetch_options => $options);
+    } else {
+      return $self->error
+          (message => ''.$error,
+           fetch_key => $fetch_key,
+           origin_key => $origin_key,
+           fetch_options => $options);
+    }
   });
 } # fetch
 
@@ -239,11 +257,43 @@ sub load_fetch_result ($$) {
   });
 } # load_fetch_result
 
+sub error ($%) {
+  my ($self, %args) = @_;
+  my $error = {fetch_options => $args{fetch_options},
+               message => $args{message}};
+  return $self->db->insert ('fetch_error', [{
+    fetch_key => Dongry::Type->serialize ('text', $args{fetch_key}),
+    origin_key => Dongry::Type->serialize ('text', $args{origin_key}), # or undef
+    error => Dongry::Type->serialize ('json', $error),
+    timestamp => time,
+  }]);
+} # error
+
+sub load_error_logs ($%) {
+  my ($self, %args) = @_;
+  my $cond = {};
+  $cond->{fetch_key} = $args{fetch_key} if defined $args{fetch_key};
+  $cond->{origin_key} = $args{origin_key} if defined $args{origin_key};
+  $cond->{timestamp} = {'>', 0+($args{after} || 0)};
+  return $self->db->select ('fetch_error', $cond,
+                            order => ['timestamp', 'asc'],
+                            limit => 100)->then (sub {
+    return [map {
+      {
+        fetch_key => $_->{fetch_key},
+        origin_key => $_->{origin_key},
+        error => Dongry::Type->parse ('json', $_->{error}),
+        timestamp => $_->{timestamp},
+      };
+    } @{$_[0]->all}];
+  });
+} # load_error_logs
+
 1;
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

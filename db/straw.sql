@@ -28,6 +28,16 @@ create table if not exists `fetch_result` (
   key (`expires`)
 ) default charset=binary engine=innodb;
 
+create table if not exists `fetch_error` (
+  `fetch_key` binary(80) not null,
+  `origin_key` binary(40) default null,
+  `error` mediumblob not null,
+  `timestamp` double not null,
+  key (`fetch_key`, `timestamp`),
+  key (`origin_key`, `timestamp`),
+  key (`timestamp`)
+) default charset=binary engine=innodb;
+
 create table if not exists `strict_fetch_subscription` (
   `fetch_key` binary(80) not null,
   `process_id` bigint unsigned not null,
@@ -93,6 +103,14 @@ create table if not exists `process` (
     -- steps
     -- output_stream_id
   primary key (`process_id`)
+) default charset=binary engine=innodb;
+
+create table if not exists `process_error` (
+  `process_id` bigint unsigned not null,
+  `error` mediumblob not null,
+  `timestamp` double not null,
+  key (`process_id`, `timestamp`),
+  key (`timestamp`)
 ) default charset=binary engine=innodb;
 
 create table if not exists `sink` (

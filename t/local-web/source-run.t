@@ -39,12 +39,54 @@ test {
   })->then (sub { done $c; undef $c });
 } wait => $wait, n => 7, name => 'fetch ok';
 
+test {
+  my $c = shift;
+  my $source;
+  my $key = rand;
+  my $after = time;
+  return Promise->resolve->then (sub {
+    return create_source ($c,
+      fetch => {hoge => $key},
+    );
+  })->then (sub {
+    $source = $_[0];
+    return POST ($c, qq{/source/$source->{source_id}/enqueue}, {});
+  })->then (sub {
+    my $res = $_[0];
+    test {
+      is $res->code, 202;
+    } $c;
+    return wait_drain $c;
+  })->then (sub {
+    return GET ($c, qq{/source/$source->{source_id}/fetched});
+  })->then (sub {
+    my $res = $_[0];
+    test {
+      is $res->code, 404;
+    } $c;
+    return GET ($c, qq{/source/logs?after=$after});
+  })->then (sub {
+    my $res = $_[0];
+    test {
+      is $res->code, 200;
+      is $res->header ('Content-Type'), 'application/json; charset=utf-8';
+      my $json = json_bytes2perl $res->content;
+      my $items = [grep { $_->{error}->{fetch_options}->{hoge} eq $key } @{$json->{items}}];
+      is 0+@$items, 1;
+      ok $items->[0]->{fetch_key};
+      is $items->[0]->{origin_key}, undef;
+      ok $items->[0]->{timestamp};
+      ok $items->[0]->{error}->{message};
+    } $c;
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 9, name => 'fetch error';
+
 run_tests;
 stop_web_server;
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
