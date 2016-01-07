@@ -1065,12 +1065,99 @@ test {
   })->then (sub { done $c; undef $c });
 } wait => $wait, n => 6, name => 'origin subscription';
 
+test {
+  my $c = shift;
+  my $stream;
+  my $process;
+  my $source;
+  my $sink;
+  my $after = time;
+  return remote ($c, {
+    a => [{'Content-Type' => 'text/xml'}, q{
+      <rdf:RDF
+        xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        xmlns="http://purl.org/rss/1.0/"
+        xmlns:dc="http://purl.org/dc/elements/1.1/"
+        xmlns:content="http://purl.org/rss/1.0/modules/content/">
+        <channel rdf:about="https://url/feed">
+          <title>Hoge Feed</title>
+          <link>https://url/</link>
+          <description>This is Hoge Feed</description>
+          <items>
+            <rdf:Seq>
+              <rdf:li rdf:resource="https://url/item/1" />
+            </rdf:Seq>
+          </items>
+        </channel>
+        <item rdf:about="https://url/item/1.rss">
+          <title>Feed Entry 1</title>
+          <link>https://url/item/1</link>
+          <description>This is Feed Entry 1</description>
+          <content:encoded>
+            &lt;p lang=en>This is Feed Entry 1.&lt;/p>
+            &lt;p lang=ja>Kore ha Feed Entry 1 desu.&lt;/p>
+          </content:encoded>
+          <dc:date>2015-12-01T11:46:23+09:00</dc:date>
+        </item>
+      </rdf:RDF>
+    }],
+  })->then (sub {
+    return create_source ($c,
+      fetch => {url => $_[0]->{a}},
+    );
+  })->then (sub {
+    $source = $_[0];
+    return create_stream ($c);
+  })->then (sub {
+    $stream = $_[0];
+    return create_sink ($c, $stream);
+  })->then (sub {
+    $sink = $_[0];
+    return create_process ($c, $source => [
+      {name => 'STEP NOT FOUND'},
+    ] => $stream);
+  })->then (sub {
+    $process = $_[0];
+    return POST ($c, qq{/source/$source->{source_id}/enqueue}, {});
+  })->then (sub {
+    my $res = $_[0];
+    test {
+      is $res->code, 202;
+    } $c;
+    return wait_drain $c;
+  })->then (sub {
+    return GET ($c, qq{/sink/$sink->{sink_id}/items});
+  })->then (sub {
+    my $res = $_[0];
+    test {
+      is $res->code, 200;
+      is $res->header ('Content-Type'), 'application/json; charset=utf-8';
+      my $json = json_bytes2perl $res->content;
+      is 0+@{$json->{items}}, 0;
+    } $c;
+    return GET ($c, qq{/process/logs?after=$after});
+  })->then (sub {
+    my $res = $_[0];
+    test {
+      is $res->code, 200;
+      is $res->header ('Content-Type'), 'application/json; charset=utf-8';
+      my $json = json_bytes2perl $res->content;
+      my $items = [grep { $_->{process_id} eq $process->{process_id} } @{$json->{items}}];
+      is 0+@$items, 1;
+      ok $items->[0]->{timestamp};
+      is $items->[0]->{error}->{process_options}, undef;
+      is $items->[0]->{error}->{step}->{name}, 'STEP NOT FOUND';
+      like $items->[0]->{error}->{message}, qr{\QBad step |STEP NOT FOUND|\E};
+    } $c;
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 11, name => 'process error';
+
 run_tests;
 stop_web_server;
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

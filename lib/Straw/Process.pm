@@ -198,13 +198,10 @@ sub _steps ($$$$) {
   my @step = @{$process_options->{steps}};
 
   my $p = Promise->resolve ($input);
-  my $log = sub { }; # XXX$self->onlog;
   for my $step (@step) {
     die "Bad step" unless ref $step eq 'HASH';
     my $step_name = $step->{name} // '';
     $p = $p->then (sub {
-      $log->($self, "$step_name...");
-
       my $act = $Straw::Step->{$step_name};
       if (not defined $act) {
         my $code = $Straw::ItemStep->{$step_name};
@@ -221,7 +218,8 @@ sub _steps ($$$$) {
           },
         } if defined $code;
       }
-      die "Bad step |$step_name|" unless defined $act;
+      die {message => "Bad step |$step_name|",
+           step => $step} unless defined $act;
 
       my $input = $step->{input} // $_[0];
       if (not defined $input->{type} or
@@ -331,7 +329,14 @@ sub run_task ($) {
       $p = $p->then (sub {
         return $self->run_process ($process_options, $args, $result);
       })->catch (sub {
-        warn $_[0]; # XXX error reporting
+        if (ref $_[0] eq 'HASH') {
+          return $self->error (%{$_[0]}, process_id => $process_id);
+        } else {
+          return $self->error
+              (process_id => $process_id,
+               process_options => $process_options,
+               message => ''.$_[0]);
+        }
       });
       push @task_id, $data->{task_id};
     }
@@ -352,11 +357,42 @@ sub run_task ($) {
   });
 } # run_task
 
+sub error ($%) {
+  my ($self, %args) = @_;
+  my $error = {message => $args{message}};
+  $error->{process_options} = $args{process_options}
+      if defined $args{process_options};
+  $error->{step} = $args{step} if defined $args{step};
+  return $self->db->insert ('process_error', [{
+    process_id => Dongry::Type->serialize ('text', $args{process_id}),
+    error => Dongry::Type->serialize ('json', $error),
+    timestamp => time,
+  }]);
+} # error
+
+sub load_error_logs ($%) {
+  my ($self, %args) = @_;
+  my $cond = {};
+  $cond->{process_id} = $args{process_id} if defined $args{process_id};
+  $cond->{timestamp} = {'>', 0+($args{after} || 0)};
+  return $self->db->select ('process_error', $cond,
+                            order => ['timestamp', 'asc'],
+                            limit => 100)->then (sub {
+    return [map {
+      {
+        process_id => ''.$_->{process_id},
+        error => Dongry::Type->parse ('json', $_->{error}),
+        timestamp => $_->{timestamp},
+      };
+    } @{$_[0]->all}];
+  });
+} # load_error_logs
+
 1;
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

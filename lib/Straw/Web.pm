@@ -236,6 +236,19 @@ sub main ($$$) {
         die $_[0];
       }
     });
+  } elsif (@$path == 2 and $path->[0] eq 'process' and $path->[1] eq 'logs') {
+    # /process/logs
+    my $process = Straw::Process->new_from_db ($db);
+    my $after = $app->bare_param ('after') || 0;
+    return $process->load_error_logs (after => $after)->then (sub {
+      my $items = $_[0];
+      my $next_after = @$items ? $items->[-1]->{timestamp} : $after;
+      return $class->send_json ($app, {
+        next_after => $next_after,
+        next_url => $app->http->url->resolve_string ('logs?after=' . $next_after)->stringify,
+        items => $items,
+      });
+    });
   }
 
   if (@$path >= 2 and
