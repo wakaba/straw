@@ -264,7 +264,7 @@ $Straw::ItemStep->{use_atom_id_as_key} = sub {
   my ($self, $step, $item, $result) = @_;
   my $v = $item->{0}->{props}->{q<http://www.w3.org/2005/Atomid>};
   if (defined $v and ref $v eq 'ARRAY' and @$v) {
-    $item->{0}->{props}->{key} = $v if length $v->[0];
+    $item->{0}->{props}->{key} = $v->[0] if length $v->[0];
   }
   return $item;
 }; # use_atom_id_as_key

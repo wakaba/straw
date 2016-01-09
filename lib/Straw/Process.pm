@@ -262,18 +262,16 @@ sub _save ($$$) {
     my $item = $_;
     map {
       my $d = $item->{$_};
-      # XXX $d->{props} ? check ??
       if (keys %{$d->{props}}) {
-        my $timestamp = $d->{props}->{timestamp} || $updated;
-        my $key = sha1_hex (Dongry::Type->serialize ('text', $d->{props}->{key} // $timestamp));
-        +{
+        my $x = {
           stream_id => Dongry::Type->serialize ('text', $stream_id),
-          item_key => $key,
           channel_id => $_,
-          data => (perl2json_bytes_for_record $d),
-          timestamp => $timestamp,
+          timestamp => $d->{props}->{timestamp} // $updated,
           updated => $updated,
-         };
+          data => (perl2json_bytes_for_record $d),
+        };
+        $x->{item_key} = sha1_hex (Dongry::Type->serialize ('text', $d->{props}->{key}) // $x->{data});
+        $x;
       } else {
         ();
       }
