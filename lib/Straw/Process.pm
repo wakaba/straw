@@ -98,6 +98,7 @@ sub save_process ($$) {
       return $self->db->insert ('stream_subscription', [map { {
         stream_id => $_,
         process_id => $process_id,
+        last_updated => 0,
       } } @$stream_ids], duplicate => 'ignore')->then (sub {
         return $self->db->delete ('stream_subscription', {
           stream_id => {-not_in => $stream_ids},
@@ -114,41 +115,54 @@ sub save_process ($$) {
   });
 } # save_process
 
-sub run_process ($$$$) {
-  my ($self, $process_options, $process_args, $result) = @_;
-  return $self->_load ($process_options, $process_args)->then (sub {
-    return $self->_steps ($process_options, $_[0], $result);
+sub run_process ($$$$$) {
+  my ($self, $process_id, $process_options, $process_args, $result) = @_;
+  my $current = {process_id => $process_id,
+                 process_options => $process_options,
+                 process_args => $process_args,
+                 #input_stream_id
+                 #last_updated,
+                 result => $result};
+  return $self->_load ($current)->then (sub {
+    return $self->_steps ($current, $_[0]);
   })->then (sub {
-    return $self->_save ($process_options, $_[0], $result);
+    return $self->_save ($current, $_[0]);
   });
 } # run_process
 
-sub _load ($$$) {
-  my ($self, $process_options, $process_args) = @_;
+sub _load ($$) {
+  my ($self, $current) = @_;
 
-  if (defined $process_args->{fetch_key}) {
+  if (defined $current->{process_args}->{fetch_key}) {
     my $fetch = Straw::Fetch->new_from_db ($self->db);
-    return $fetch->load_fetch_result ($process_args->{fetch_key})->then (sub {
-      die "Fetch result for |$process_args->{fetch_key}| not available"
+    return $fetch->load_fetch_result ($current->{process_args}->{fetch_key})->then (sub {
+      die "Fetch result for |$current->{process_args}->{fetch_key}| not available"
           unless defined $_[0];
       require HTTP::Response;
       return {type => 'HTTP::Response',
               res => HTTP::Response->parse ($_[0])};
     });
-  } elsif (defined $process_args->{stream_id}) {
-    my $src_stream_id = $process_args->{stream_id};
+  } elsif (defined $current->{process_args}->{stream_id}) {
+    my $src_stream_id = $current->{process_args}->{stream_id};
     my $map = {};
-    $map = $process_options->{input_channel_mappings}->{$src_stream_id}
-        if defined $process_options->{input_channel_mappings} and
-           ref $process_options->{input_channel_mappings} eq 'HASH';
-    my $dest_stream_id = $process_options->{output_stream_id};
+    $map = $current->{process_options}->{input_channel_mappings}->{$src_stream_id}
+        if defined $current->{process_options}->{input_channel_mappings} and
+           ref $current->{process_options}->{input_channel_mappings} eq 'HASH';
+    my $dest_stream_id = $current->{process_options}->{output_stream_id};
     $map = {} unless defined $map and ref $map eq 'HASH';
     my $items = [];
-    my $ref = 0; # XXX
-    return $self->db->select ('stream_item_data', {
+    return $self->db->select ('stream_subscription', {
       stream_id => Dongry::Type->serialize ('text', $src_stream_id),
-      updated => {'>', $ref},
-    }, fields => ['data', 'channel_id', 'item_key'], order => ['updated', 'ASC'], limit => 10)->then (sub { # XXXlimit
+      process_id => Dongry::Type->serialize ('text', $current->{process_id}),
+    }, fields => ['last_updated'])->then (sub {
+      my $d = $_[0]->first;
+      my $ref = defined $d ? $d->{last_updated} : 0;
+      return $self->db->select ('stream_item_data', {
+        stream_id => Dongry::Type->serialize ('text', $src_stream_id),
+        updated => {'>', $ref},
+      }, fields => ['data', 'channel_id', 'item_key', 'updated'],
+          order => ['updated', 'ASC'], limit => 10);
+    })->then (sub {
       my $item_by_key = {};
       my @item_key;
       for (@{$_[0]->all}) {
@@ -166,6 +180,7 @@ sub _load ($$$) {
         }
         my $channel_id = 0+($map->{$_->{channel_id}} // $_->{channel_id});
         $item->{$channel_id} = Dongry::Type->parse ('json', $_->{data});
+        $current->{last_updated} = $_->{updated};
       }
       return unless @item_key;
       return $self->db->select ('stream_item_data', {
@@ -184,18 +199,17 @@ sub _load ($$$) {
     })->then (sub {
       return {type => 'Stream', items => $items};
     });
-    # XXX load data from other channels
   }
 
   die "Bad process argument";
 } # _load
 
-sub _steps ($$$$) {
-  my ($self, $process_options, $input, $result) = @_;
+sub _steps ($$$) {
+  my ($self, $current, $input) = @_;
   die "No steps defined"
-      if not defined $process_options->{steps} or
-         not ref $process_options->{steps} eq 'ARRAY';
-  my @step = @{$process_options->{steps}};
+      if not defined $current->{process_options}->{steps} or
+         not ref $current->{process_options}->{steps} eq 'ARRAY';
+  my @step = @{$current->{process_options}->{steps}};
 
   my $p = Promise->resolve ($input);
   for my $step (@step) {
@@ -227,16 +241,16 @@ sub _steps ($$$$) {
           not $act->{in_type} eq $input->{type}) {
         die "Input has different type |$input->{type}| from the expected type |$act->{in_type}|";
       }
-      return $act->{code}->($self, $step, $input, $result);
+      return $act->{code}->($self, $step, $input, $current->{result});
     });
   }
   return $p;
 } # _steps
 
-sub _save ($$$$) {
-  my ($self, $process_options, $input, $result) = @_;
+sub _save ($$$) {
+  my ($self, $current, $input) = @_;
 
-  my $stream_id = $process_options->{output_stream_id};
+  my $stream_id = $current->{process_options}->{output_stream_id};
   die "No output stream ID" unless defined $stream_id;
 
   die "Input type |$input->{type}| is different from |Stream|"
@@ -274,11 +288,22 @@ sub _save ($$$$) {
     return $self->db->select ('stream_subscription', {
       stream_id => Dongry::Type->serialize ('text', $stream_id),
     }, fields => ['process_id'])->then (sub {
-      $result->{process} = 1;
+      $current->{result}->{process} = 1;
       return $self->add_process_task
           ([map { $_->{process_id} } @{$_[0]->all}],
            stream_id => $stream_id);
     });
+  })->then (sub {
+    if (defined $current->{process_args}->{stream_id} and
+        defined $current->{last_updated}) {
+      return $self->db->update ('stream_subscription', {
+        last_updated => $current->{last_updated},
+      }, where => {
+        stream_id => Dongry::Type->serialize ('text', $current->{process_args}->{stream_id}),
+        process_id => $current->{process_id},
+        last_updated => {'<', $current->{last_updated}},
+      });
+    }
   });
 } # _save
 
@@ -331,7 +356,8 @@ sub run_task ($) {
     for my $data (@data) { # any $data in @data has $same $data->{process_id}
       my $args = Dongry::Type->parse ('json', $data->{process_args});
       $p = $p->then (sub {
-        return $self->run_process ($process_options, $args, $result);
+        return $self->run_process
+            ($process_id, $process_options, $args, $result);
       })->catch (sub {
         if (ref $_[0] eq 'HASH') {
           return $self->error (%{$_[0]}, process_id => $process_id);
