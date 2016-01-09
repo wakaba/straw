@@ -476,11 +476,12 @@ test {
       is $res->header ('Content-Type'), 'application/json; charset=utf-8';
       my $json = json_bytes2perl $res->content;
       is 0+@{$json->{items}}, 2;
-      my $item1 = $json->{items}->[0];
+      my $items = [sort { $a->{data}->{url} cmp $b->{data}->{url} } @{$json->{items}}];
+      my $item1 = $json->{items}->[1];
       is $item1->{data}->{url}, q<https://url/item/2>;
       is $item1->{data}->{title}, q<Feed Entry 2>;
       is $item1->{data}->{desc_text}, q{This is Feed Entry 2};
-      my $item2 = $json->{items}->[1];
+      my $item2 = $json->{items}->[0];
       is $item2->{data}->{url}, q<https://url/item/1>;
       is $item2->{data}->{title}, q<Feed Entry 1>;
       is $item2->{data}->{desc_text}, q{This is Feed Entry 1};
@@ -1272,6 +1273,95 @@ test {
     } $c;
   })->then (sub { done $c; undef $c });
 } wait => $wait, n => 22, name => 'sink paging';
+
+test {
+  my $c = shift;
+  my $stream;
+  my $process;
+  my $source;
+  my $sink;
+  my $after;
+  return remote ($c, {
+    a => [{'Content-Type' => 'text/xml'}, q{
+      <rdf:RDF
+        xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        xmlns="http://purl.org/rss/1.0/"
+        xmlns:dc="http://purl.org/dc/elements/1.1/"
+        xmlns:content="http://purl.org/rss/1.0/modules/content/">
+        <channel rdf:about="https://url/feed">
+          <title>Hoge Feed</title>
+          <link>https://url/</link>
+          <description>This is Hoge Feed</description>
+          <items>
+            <rdf:Seq>
+              <rdf:li rdf:resource="https://url/item/1" />
+            </rdf:Seq>
+          </items>
+        </channel>
+        <item rdf:about="https://url/item/1.rss">
+          <title>Feed Entry 1</title>
+          <link>https://url/item/1</link>
+          <description>This is Feed Entry 1</description>
+          <content:encoded>
+            &lt;p lang=en>This is Feed Entry 1.&lt;/p>
+            &lt;p lang=ja>Kore ha Feed Entry 1 desu.&lt;/p>
+          </content:encoded>
+          <dc:date>2015-12-01T11:46:23+09:00</dc:date>
+        </item>
+      </rdf:RDF>
+    }],
+  })->then (sub {
+    return create_source ($c,
+      fetch => {url => $_[0]->{a}},
+    );
+  })->then (sub {
+    $source = $_[0];
+    return create_stream ($c);
+  })->then (sub {
+    $stream = $_[0];
+    return create_sink ($c, $stream);
+  })->then (sub {
+    $sink = $_[0];
+    return create_process ($c, $source => [
+      {name => 'httpres_to_doc'},
+      {name => 'parse_rss'},
+      {name => 'rss_basic'},
+      {name => 'use_url_as_key'},
+      {name => 'dc_date_as_timestamp'},
+    ] => $stream);
+  })->then (sub {
+    $process = $_[0];
+    return POST ($c, qq{/source/$source->{source_id}/enqueue}, {});
+  })->then (sub {
+    my $res = $_[0];
+    test {
+      is $res->code, 202;
+    } $c;
+    return wait_drain $c;
+  })->then (sub {
+    $after = time;
+    return POST ($c, qq{/source/$source->{source_id}/enqueue}, {});
+  })->then (sub {
+    my $res = $_[0];
+    test {
+      is $res->code, 202;
+    } $c;
+    return wait_drain $c;
+  })->then (sub {
+    return GET ($c, qq{/sink/$sink->{sink_id}/items?after=$after});
+  })->then (sub {
+    my $res = $_[0];
+    my $next_after;
+    test {
+      is $res->code, 200;
+      is $res->header ('Content-Type'), 'application/json; charset=utf-8';
+      my $json = json_bytes2perl $res->content;
+      is 0+@{$json->{items}}, 0;
+      ok $next_after = $json->{next_after};
+      like $json->{next_url}, qr{/sink/$sink->{sink_id}/items\?after=$next_after$};
+    } $c;
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 7, name => 'reprocessed but no change';
 
 run_tests;
 stop_web_server;

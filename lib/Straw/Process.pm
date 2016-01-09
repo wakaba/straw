@@ -256,7 +256,7 @@ sub _save ($$$$) {
           stream_id => Dongry::Type->serialize ('text', $stream_id),
           item_key => $key,
           channel_id => $_,
-          data => Dongry::Type->serialize ('json', $d),
+          data => (perl2json_bytes_for_record $d),
           timestamp => $timestamp,
           updated => $updated,
          };
@@ -266,7 +266,11 @@ sub _save ($$$$) {
     } keys %$item;
   } reverse @{$input->{items}});
   return unless @insert;
-  return $self->db->insert ('stream_item_data', \@insert, duplicate => 'replace')->then (sub {
+  return $self->db->insert ('stream_item_data', \@insert, duplicate => {
+    data => $self->db->bare_sql_fragment ('VALUES(data)'),
+    timestamp => $self->db->bare_sql_fragment ('VALUES(timestamp)'),
+    updated => $self->db->bare_sql_fragment ('if (data != values(data), VALUES(updated), updated)'),
+  })->then (sub {
     return $self->db->select ('stream_subscription', {
       stream_id => Dongry::Type->serialize ('text', $stream_id),
     }, fields => ['process_id'])->then (sub {
