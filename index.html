@@ -1,4 +1,9 @@
 <!DOCTYPE HTML>
+<style>
+  pre {
+    white-space: pre-wrap;
+  }
+</style>
 
 <form action=javascript: onsubmit="
   fetch ('/source', {method: 'POST', body: new FormData (this)}).then (function (res) {
@@ -36,3 +41,110 @@
   <p><textarea name=fetch_options></textarea>
   <p><textarea name=schedule_options></textarea>
 </form>
+
+<div id=edit-tabs></div>
+
+<template id=process-template>
+  <h1>Process <code class=process_id></code></h1>
+  <progress class=status></progress>
+  <p><textarea name=process_options></textarea>
+</template>
+
+<script>
+  function loadProcess (processId) {
+    var template = document.querySelector ('#process-template');
+    var section = document.createElement ('section');
+    section.appendChild (template.content.cloneNode (true));
+
+    Array.prototype.forEach.call (section.querySelectorAll ('.process_id'), function (el) {
+      el.textContent = processId;
+    });
+
+    var tabs = document.querySelector ('#edit-tabs');
+    tabs.appendChild (section);
+
+    var progress = section.querySelector ('.status');
+    progress.hidden = false;
+
+    fetch ('/process/' + encodeURIComponent (processId)).then (function (res) {
+      return res.json ();
+    }).then (function (json) {
+      Array.prototype.forEach.call (section.querySelectorAll ('[name=process_options]'), function (el) {
+        el.value = JSON.stringify (json);
+      });
+      progress.hidden = true;
+    });
+  } // loadProcess
+</script>
+
+<script>
+  function subscribe (url, onitem) {
+    _subscribeURL (url, onitem);
+  } // subscribe
+
+  function _subscribeURL (url, onitem) {
+    return fetch (url).then (function (res) {
+      return res.json ();
+    }).then (function (json) {
+      var nextURL = json.next_url || url;
+      var items = json.items;
+      items.forEach (function (_) { onitem (_) });
+      setTimeout (function () {
+        _subscribeURL (nextURL, onitem);
+      }, 30*1000);
+    }, function (error) {
+      console.log (error);
+      setTimeout (function () {
+        _subscribeURL (nextURL, onitem);
+      }, 30*1000);
+    });
+  } // _subscribeURL
+</script>
+
+<ul id=logs></ul>
+<template id=log-template>
+  <a href class=process_id-link>Process <span class=process_id></span></a>
+  <time class=timestamp></time>
+  <pre class=bare></pre>
+</template>
+
+<script>
+(function () {
+  var ul = document.querySelector ('#logs');
+  var template = document.querySelector ('#log-template');
+  var addLog = function (item) {
+    var li = document.createElement ('li');
+    li.appendChild (template.content.cloneNode (true));
+
+    li.querySelector ('.bare').textContent = JSON.stringify (item);
+
+    var time = li.querySelector ('.timestamp');
+    var t = new Date (item.timestamp * 1000);
+    time.dateTime = t.toISOString ();
+    time.textContent = t.toLocaleString ();
+
+    Array.prototype.forEach.call (li.querySelectorAll ('.process_id'), function (el) {
+      if (item.process_id) {
+        el.textContent = item.process_id;
+      } else {
+        el.hidden = true;
+      }
+    });
+    Array.prototype.forEach.call (li.querySelectorAll ('.process_id-link'), function (el) {
+      if (item.process_id) {
+        el.href = 'javascript:';
+        el.onclick = function () { loadProcess (item.process_id) };
+      } else {
+        el.hidden = true;
+      }
+    });
+
+    ul.insertBefore (li, ul.firstChild);
+    if (ul.children.length > 100) {
+      ul.removeChild (ul.lastChild);
+    }
+  }; // addLog
+  subscribe ('/process/logs', addLog);
+  subscribe ('/source/logs', addLog);
+}) ();
+</script>
