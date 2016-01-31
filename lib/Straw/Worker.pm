@@ -6,6 +6,7 @@ use Promise;
 use Dongry::Database;
 use Straw::Fetch;
 use Straw::Process;
+use Straw::Expire;
 
 my $DEBUG = $ENV{WORKER_DEBUG};
 
@@ -84,11 +85,15 @@ sub _after_run ($$$) {
 sub run ($$) {
   my ($self, $type) = @_;
   return if $self->{terminate} or
-            $self->{worker_count}->{$type} + 1 > $MaxWorkers;
+            ($self->{worker_count}->{$type} || 0) + 1 > $MaxWorkers;
   $self->{worker_count}->{$type}++;
   $self->{worker_count}->{all}++;
   warn "Worker $type - start (all=$self->{worker_count}->{all} $type=$self->{worker_count}->{$type})\n" if $DEBUG;
-  my $cls = $type eq 'fetch' ? 'Straw::Fetch' : 'Straw::Process';
+  my $cls = {
+    fetch => 'Straw::Fetch',
+    process => 'Straw::Process',
+    expire => 'Straw::Expire',
+  }->{$type};
   my $mod = $cls->new_from_db ($self->db);
   my $after;
   my $r; $r = sub {
@@ -100,7 +105,7 @@ sub run ($$) {
       $self->{active_worker_count}->{all}--;
       $self->run ('fetch') if $more->{fetch}; # don't return
       $self->run ('process') if $more->{process}; # don't return
-      $after = $more->{next_fetch_time};
+      $after = $more->{next_action_time};
       return $r->() if $more->{continue};
     });
   }; # $r
@@ -117,7 +122,7 @@ sub run ($$) {
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

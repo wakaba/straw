@@ -90,7 +90,7 @@ sub add_fetch_task ($$;%) {
   my ($self, $fetch_options, %args) = @_;
   my $fetch_key;
   ($fetch_key, $fetch_options, undef) = serialize_fetch $fetch_options;
-  my $after = $args{result}->{next_fetch_time} = time + ($args{delta} || 0);
+  my $after = $args{result}->{next_action_time} = time + ($args{delta} || 0);
   return $self->db->insert ('fetch_task', [{
     fetch_key => $fetch_key,
     fetch_options => $fetch_options,
@@ -131,8 +131,6 @@ sub schedule_next_fetch_task ($$$) {
   });
 } # schedule_next_fetch_task
 
-my $ProcessTimeout = 60*5;
-
 sub run_task ($) {
   my $self = $_[0];
   my $db = $self->db;
@@ -165,18 +163,16 @@ sub run_task ($) {
     }
     return $p;
   })->then (sub {
-    return $db->delete ('fetch_task', {
-      running_since => {'<', time - $ProcessTimeout, '!=' => 0},
-    });
-  })->then (sub {
     return $db->execute ('select run_after from fetch_task order by run_after asc limit 1')->then (sub {
       my $d = $_[0]->first;
-      $result->{next_fetch_time} = $d->{run_after} if defined $d;
+      $result->{next_action_time} = $d->{run_after} if defined $d;
       return $result;
     }) unless $result->{continue};
     return $result;
   });
 } # run_task
+
+my $HTTPTimeout = 6*50;
 
 sub fetch ($$$$) {
   my ($self, $fetch_key, $options, $result) = @_;
@@ -190,7 +186,7 @@ sub fetch ($$$$) {
     http_get
         url => $options->{url},
         anyevent => 1,
-        timeout => $ProcessTimeout,
+        timeout => $HTTPTimeout,
         cb => sub {
           if ($_[1]->code >= 590) { # network error
             $ng->($_[1]);

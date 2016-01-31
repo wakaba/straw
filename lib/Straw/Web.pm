@@ -38,6 +38,7 @@ sub psgi_app ($) {
     $Worker = Straw::Worker->new_from_db_sources ($DBSources);
     $Worker->run ('fetch');
     $Worker->run ('process');
+    $Worker->run ('expire');
 
     $Signals->{TERM} = Promised::Command::Signals->add_handler (TERM => sub {
       $Worker->terminate;
@@ -105,7 +106,7 @@ sub main ($$$) {
              (json_bytes2perl $app->bare_param ('schedule_options') // ''),
              $result)->then (sub {
           $Worker->run ('fetch') # don't return
-              if defined $result->{next_fetch_time};
+              if defined $result->{next_action_time};
           return $class->send_json ($app, {});
         }, sub {
           if (ref $_[0] eq 'HASH') {
@@ -182,7 +183,7 @@ sub main ($$$) {
          (json_bytes2perl ($app->bare_param ('schedule_options') // '')),
          $result)->then (sub {
       $Worker->run ('fetch') # don't return
-          if defined $result->{next_fetch_time};
+          if defined $result->{next_action_time};
       return $class->send_json ($app, {source_id => $_[0]});
     }, sub {
       if (ref $_[0] eq 'HASH') {

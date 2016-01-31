@@ -326,8 +326,6 @@ sub add_process_task ($$;%) {
   });
 } # add_process_task
 
-my $ProcessTimeout = 60; # XXX 60*60;
-
 sub run_task ($) {
   my $self = $_[0];
   my $db = $self->db;
@@ -375,10 +373,6 @@ sub run_task ($) {
         #process_id => $process_id,
         #running_since => $time,
       });
-    });
-  })->then (sub {
-    return $db->delete ('process_task', {
-      running_since => {'<', time - $ProcessTimeout, '!=' => 0},
     });
   })->then (sub {
     return $result;
