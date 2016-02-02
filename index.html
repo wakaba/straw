@@ -37,12 +37,28 @@
   .tabs > .tab-sections > section.active {
     display: block;
   }
+
+  .item-list .item {
+    margin: .2rem;
+    border: 1px gray solid;
+    border-radius: .2rem;
+    padding: .3rem .5rem;
+    font-size: 80%;
+  }
+
+  .item-list .item button {
+    font-size: 80%;
+  }
 </style>
 <script>
   function $$ (p, _) {
     return Array.prototype.slice.call (p.querySelectorAll (_));
   } // $$
 </script>
+
+<body onbeforeunload="
+  if (document.querySelector ('.modified')) return 'Are you sure?';
+">
 
 <div id=edit-tabs class=tabs>
   <nav></nav>
@@ -81,7 +97,7 @@
 
   <section>
     <h1>Fetch</h1>
-    <p><label>URL: <input type=url name=fetch_options_url></label>
+    <p><label>URL: <input type=url name=fetch_options_url required></label>
     <p><label>Every <input type=number name=schedule_options_every_seconds min=60 step=1> seconds</label>
   </section>
 
@@ -92,15 +108,16 @@
 
 <template id=process-template>
   <h1>Process <code class=process_id></code></h1>
-  <progress class=status></progress>
-  <p><textarea name=process_options></textarea>
-  <p>Input:
-  <ul class=input_source_ids-list></ul>
-  <template class=input_source_id-template>
-    <a href="" class=source_id-link>Source <code class=source_id></code></a>
-  </template>
-  <p>Output:
-  <a href="" class=output_stream_id-link>Stream <code class=output_stream_id></code></a>
+
+  <p>Input: <span class=item-list data-name=input_ids data-min=0 data-source-id data-stream-id></span>
+
+  <!-- XXX steps -->
+
+  <p>Output: <span class=item-list data-name=output_ids data-min=1 data-max=1 data-stream-id></span>
+
+  <p><button type=button class=save-button>Save</button>
+
+  <p><progress class=status></progress>
 </template>
 
 <template id=stream-template>
@@ -109,6 +126,100 @@
 </template>
 
 <script>
+  function makeItemList (section, sel, input) {
+    $$ (section, sel).forEach (function (el) {
+      if (el.hasAttribute ('data-source-id')) { (function () {
+        var addItem = document.createElement ('span');
+        addItem.className = 'item source add';
+        addItem.innerHTML = '<input name=source_id pattern=[0-9]+ required> <button type=button>Add source</button>';
+        el.appendChild (addItem);
+        var newItem = document.createElement ('span');
+        newItem.className = 'item source new';
+        newItem.innerHTML = '<button type=button>New source</button>';
+        el.appendChild (newItem);
+        var insertItem = function (sourceId) {
+          var l = document.createElement ('span');
+          l.className = 'item source';
+          l.setAttribute ('data-value', sourceId);
+          l.innerHTML = '<a href></a> <button type=button class=delete-button>Delete</button>';
+          l.firstChild.href = '#source/' + sourceId;
+          l.firstChild.textContent = 'Source ' + sourceId;
+          l.lastChild.onclick = function () {
+            if (confirm ('Delete?')) this.parentNode.remove ();
+          };
+          el.insertBefore (l, addItem);
+        }; // insertItem
+        input.sourceIds.forEach (insertItem);
+        addItem.querySelector ('button').onclick = function () {
+          var v = this.parentNode.querySelector ('[name=source_id]')
+          if (v.value) insertItem (v.value); // XXX validation
+          v.value = '';
+        };
+        newItem.querySelector ('button').onclick = function () {
+          var fd = new FormData;
+          fd.append ('type', 'fetch_source');
+          fd.append ('fetch_options', '{}');
+          fd.append ('schedule_options', '{}');
+          fetch ('/source', {method: "POST", body: fd}).then (function (res) {
+            return res.json ();
+          }).then (function (json) {
+            insertItem (json.source_id);
+          }, function (error) {
+            addLog ({error: {message: "Save error", error: error}});
+          });
+        };
+      }) () }
+      if (el.hasAttribute ('data-stream-id')) { (function () {
+        var addItem = document.createElement ('span');
+        addItem.className = 'item stream add';
+        addItem.innerHTML = '<input name=stream_id pattern=[0-9]+ required> <button type=button>Add stream</button>';
+        el.appendChild (addItem);
+        var newItem = document.createElement ('span');
+        newItem.className = 'item stream new';
+        newItem.innerHTML = '<button type=button>New stream</button>';
+        el.appendChild (newItem);
+        var insertItem = function (streamId) {
+          var l = document.createElement ('span');
+          l.className = 'item stream';
+          l.setAttribute ('data-value', streamId);
+          l.innerHTML = '<a href></a> <button type=button class=delete-button>Delete</button>';
+          l.firstChild.href = '#stream/' + streamId;
+          l.firstChild.textContent = 'Stream ' + streamId;
+          l.lastChild.onclick = function () {
+            if (confirm ('Delete?')) this.parentNode.remove ();
+          };
+          el.insertBefore (l, addItem);
+        }; // insertItem
+        input.streamIds.forEach (insertItem);
+        addItem.querySelector ('button').onclick = function () {
+          var v = this.parentNode.querySelector ('[name=stream_id]')
+          if (v.value) insertItem (v.value); // XXX validation
+          v.value = '';
+        };
+        newItem.querySelector ('button').onclick = function () {
+          fetch ('/stream', {method: "POST"}).then (function (res) {
+            return res.json ();
+          }).then (function (json) {
+            insertItem (json.stream_id);
+          }, function (error) {
+            addLog ({error: {message: "Save error", error: error}});
+          });
+        };
+      }) () }
+
+      el.stGetValues = function () {
+        var sourceIds = $$(el, '.item.source[data-value]').map (function (el) {
+          return el.getAttribute ('data-value');
+        });
+        var streamIds = $$(el, '.item.stream[data-value]').map (function (el) {
+          return el.getAttribute ('data-value');
+        });
+        // XXX data-min/data-max validation
+        return {sourceIds: sourceIds, streamIds: streamIds};
+      }; // stGetValues
+    });
+  } // makeItemList
+
   function loadSource (sourceId) {
     var section = document.getElementById ('source/' + sourceId);
     if (section) {
@@ -258,36 +369,41 @@
     fetch (url).then (function (res) {
       return res.json ();
     }).then (function (json) {
-      Array.prototype.forEach.call (section.querySelectorAll ('[name=process_options]'), function (el) {
-        el.value = JSON.stringify (json);
+      var inputSourceIds = json.process_options.input_source_ids;
+      if (!inputSourceIds || !inputSourceIds.forEach) inputSourceIds = [];
+      var inputStreamIds = json.process_options.input_stream_ids;
+      if (!inputStreamIds || !inputStreamIds.forEach) inputStreamIds = [];
+      var outputStreamIds = [];
+      if (json.process_options.output_stream_id)
+          outputStreamIds.push (json.process_options.output_stream_id);
+
+      makeItemList (section, '.item-list[data-name=input_ids]',
+                    {sourceIds: inputSourceIds,
+                     streamIds: inputStreamIds}); // XXX onchange
+      makeItemList (section, '.item-list[data-name=output_ids]',
+                    {streamIds: outputStreamIds}); // XXX onchange
+
+      $$ (section, '.save-button').forEach (function (el) {
+        el.onclick = function () {
+          section.stModified = false;
+          progress.hidden = false;
+          var fd = new FormData;
+          var input = section.querySelector ('.item-list[data-name=input_ids]').stGetValues ();
+          json.process_options.input_source_ids = input.sourceIds;
+          json.process_options.input_stream_ids = input.streamIds;
+          var output = section.querySelector ('.item-list[data-name=output_ids]').stGetValues ();
+          json.process_options.output_stream_id = output.streamIds[0];
+          fd.append ('process_options', JSON.stringify (json.process_options));
+          fetch (url, {method: "POST", body: fd}).then (function () {
+            progress.hidden = true;
+            if (!section.stModified) section.classList.remove ('modified');
+          }, function (error) {
+            progress.hidden = true;
+            section.stModified = true;
+            addLog ({error: {message: "Save error", error: error}});
+          });
+        }; // onclick
       });
-
-      if (json.process_options &&
-          json.process_options.input_source_ids &&
-          json.process_options.input_source_ids.forEach) {
-        var template = section.querySelector ('.input_source_id-template');
-        var list = section.querySelector ('.input_source_ids-list');
-        json.process_options.input_source_ids.forEach (function (sourceId) {
-          var li = document.createElement ('li');
-          li.appendChild (template.content.cloneNode (true));
-          Array.prototype.forEach.call (li.querySelectorAll ('.source_id'), function (el) {
-            el.textContent = sourceId;
-          });
-          Array.prototype.forEach.call (li.querySelectorAll ('.source_id-link'), function (el) {
-            el.href = '#source/' + sourceId;
-          });
-          list.appendChild (li);
-        });
-      }
-
-      if (json.process_options && json.process_options.output_stream_id) {
-        Array.prototype.forEach.call (section.querySelectorAll ('.output_stream_id'), function (el) {
-          el.textContent = json.process_options.output_stream_id;
-        });
-        Array.prototype.forEach.call (section.querySelectorAll ('.output_stream_id-link'), function (el) {
-          el.href = '#stream/' + json.process_options.output_stream_id;
-        });
-      }
 
       progress.hidden = true;
     }, function (error) {
@@ -319,7 +435,7 @@
     }, function (error) {
       addLog ({error: {message: "Load Error", error: error, subscription: {url: url}}});
       setTimeout (function () {
-        _subscribeURL (nextURL, onitem);
+        _subscribeURL (url, onitem);
       }, 30*1000);
     });
   } // _subscribeURL
