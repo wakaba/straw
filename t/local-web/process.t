@@ -63,12 +63,41 @@ test {
   })->then (sub { done $c; undef $c });
 } wait => $wait, n => 1, name => '/process/{process_id} GET not found';
 
+test {
+  my $c = shift;
+  return create_process ($c, {source_id => '123'} => [] => {stream_id => '456'})->then (sub {
+    my $process = $_[0];
+    return POST ($c, q</process/>.$process->{process_id}, {
+      process_options => (perl2json_chars {
+        hoge => 1243,
+      }),
+    })->then (sub {
+      my $res = $_[0];
+      my $json = json_bytes2perl $res->content;
+      test {
+        is $res->code, 200;
+        is ref $json, 'HASH';
+      } $c;
+      return GET ($c, q</process/>.$process->{process_id});
+    })->then (sub {
+      my $res = $_[0];
+      my $json = json_bytes2perl $res->content;
+      test {
+        is $res->code, 200;
+        is $json->{process_options}->{hoge}, 1243;
+        is $json->{process_options}->{output_stream_id}, undef;
+      } $c;
+      # XXX test how subscriptions are updated
+    });
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 5, name => '/process/{process_id} POST';
+
 run_tests;
 stop_web_server;
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

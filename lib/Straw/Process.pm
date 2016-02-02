@@ -28,19 +28,32 @@ sub load_process_by_id ($$) {
   });
 } # load_process_by_id
 
-#XXX edit process
-sub save_process ($$) {
-  my ($self, $process_options) = @_;
+sub save_process ($$$) {
+  my ($self, $process_id, $process_options) = @_;
   return Promise->reject ({status => 400, reason => "Bad |process_options|"})
       unless defined $process_options and ref $process_options eq 'HASH';
-  my $process_id;
-  return $self->db->execute ('select uuid_short() as uuid', undef, source_name => 'master')->then (sub {
-    $process_id = $_[0]->first->{uuid};
-  })->then (sub {
+  my $p = Promise->resolve;
+  if (defined $process_id) {
+    $p = $p->then (sub {
+      return $self->db->select ('process', {
+        process_id => Dongry::Type->serialize ('text', $process_id),
+      }, fields => ['process_id'])->then (sub {
+        die {status => 404, reason => 'Process not found'}
+            unless $_[0]->first;
+      });
+    });
+  } else {
+    $p = $p->then (sub {
+      return $self->db->execute ('select uuid_short() as uuid', undef, source_name => 'master')->then (sub {
+        $process_id = $_[0]->first->{uuid};
+      });
+    });
+  }
+  return $p->then (sub {
     return $self->db->insert ('process', [{
-      process_id => $process_id,
+      process_id => Dongry::Type->serialize ('text', $process_id),
       process_options => Dongry::Type->serialize ('json', $process_options),
-    }], duplicate => 'ignore');
+    }], duplicate => 'replace');
   })->then (sub {
     my $source_ids = $process_options->{input_source_ids};
     return [] unless defined $source_ids and ref $source_ids eq 'ARRAY';
@@ -56,7 +69,7 @@ sub save_process ($$) {
     if (@$keys) {
       return $self->db->insert ('strict_fetch_subscription', [map { {
         fetch_key => $_,
-        process_id => $process_id,
+        process_id => Dongry::Type->serialize ('text', $process_id),
       } } @$keys], duplicate => 'ignore')->then (sub {
         return $self->db->delete ('strict_fetch_subscription', {
           fetch_key => {-not_in => $keys},
@@ -65,7 +78,7 @@ sub save_process ($$) {
       });
     } else {
       return $self->db->delete ('strict_fetch_subscription', {
-        process_id => $process_id,
+        process_id => Dongry::Type->serialize ('text', $process_id),
       });
     }
   })->then (sub {
@@ -78,16 +91,16 @@ sub save_process ($$) {
     if (@$keys) {
       return $self->db->insert ('origin_fetch_subscription', [map { {
         origin_key => $_,
-        process_id => $process_id,
+        process_id => Dongry::Type->serialize ('text', $process_id),
       } } @$keys], duplicate => 'ignore')->then (sub {
         return $self->db->delete ('origin_fetch_subscription', {
           origin_key => {-not_in => $keys},
-          process_id => $process_id,
+          process_id => Dongry::Type->serialize ('text', $process_id),
         });
       });
     } else {
       return $self->db->delete ('origin_fetch_subscription', {
-        process_id => $process_id,
+        process_id => Dongry::Type->serialize ('text', $process_id),
       });
     }
   })->then (sub {
@@ -97,17 +110,17 @@ sub save_process ($$) {
       $stream_ids = [map { Dongry::Type->serialize ('text', $_) } @$stream_ids];
       return $self->db->insert ('stream_subscription', [map { {
         stream_id => $_,
-        process_id => $process_id,
+        process_id => Dongry::Type->serialize ('text', $process_id),
         last_updated => 0,
       } } @$stream_ids], duplicate => 'ignore')->then (sub {
         return $self->db->delete ('stream_subscription', {
           stream_id => {-not_in => $stream_ids},
-          process_id => $process_id,
+          process_id => Dongry::Type->serialize ('text', $process_id),
         });
       });
     } else {
       return $self->db->delete ('stream_subscription', {
-        process_id => $process_id,
+        process_id => Dongry::Type->serialize ('text', $process_id),
       });
     }
   })->then (sub {

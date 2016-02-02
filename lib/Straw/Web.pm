@@ -213,20 +213,36 @@ sub main ($$$) {
     if (@$path == 2) {
       # /process/{process_id}
       my $process = Straw::Process->new_from_db ($db);
-      return $process->load_process_by_id ($path->[1])->then (sub {
-        my $data = $_[0];
-        return $app->throw_error (404, reason_phrase => 'Process not found')
-            unless defined $data;
-        $data->{process_options} = json_bytes2perl $data->{process_options};
-        return $class->send_json ($app, $data);
-      });
+      if ($app->http->request_method eq 'POST') {
+        # XXX CSRF
+        return $process->save_process
+            ($path->[1],
+             (json_bytes2perl $app->bare_param ('process_options') // ''))->then (sub {
+          return $class->send_json ($app, {});
+        }, sub {
+          if (ref $_[0] eq 'HASH') {
+            return $app->throw_error
+                ($_[0]->{status}, reason_phrase => $_[0]->{reason});
+          } else {
+            die $_[0];
+          }
+        });
+      } else { # GET
+        return $process->load_process_by_id ($path->[1])->then (sub {
+          my $data = $_[0];
+          return $app->throw_error (404, reason_phrase => 'Process not found')
+              unless defined $data;
+          $data->{process_options} = json_bytes2perl $data->{process_options};
+          return $class->send_json ($app, $data);
+        });
+      }
     }
   } elsif (@$path == 1 and $path->[0] eq 'process') {
     # /process
     $app->requires_request_method ({POST => 1});
     # XXX CSRF
     my $process = Straw::Process->new_from_db ($db);
-    return $process->save_process ((json_bytes2perl ($app->bare_param ('process_options') // '')))->then (sub {
+    return $process->save_process (undef, (json_bytes2perl ($app->bare_param ('process_options') // '')))->then (sub {
       my $process_id = $_[0];
       return $class->send_json ($app, {process_id => $process_id});
     }, sub {
