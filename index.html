@@ -26,6 +26,10 @@
     font-weight: bolder;
   }
 
+  .tabs > nav > a.modified::after {
+    content: " *";
+  }
+
   .tabs > .tab-sections > section {
     display: none;
   }
@@ -34,6 +38,11 @@
     display: block;
   }
 </style>
+<script>
+  function $$ (p, _) {
+    return Array.prototype.slice.call (p.querySelectorAll (_));
+  } // $$
+</script>
 
 <div id=edit-tabs class=tabs>
   <nav></nav>
@@ -69,9 +78,16 @@
 
 <template id=source-template>
   <h1>Source <code class=source_id></code></h1>
-  <progress class=status></progress>
-  <p><textarea name=fetch_options></textarea>
-  <p><textarea name=schedule_options></textarea>
+
+  <section>
+    <h1>Fetch</h1>
+    <p><label>URL: <input type=url name=fetch_options_url></label>
+    <p><label>Every <input type=number name=schedule_options_every_seconds min=60 step=1> seconds</label>
+  </section>
+
+  <p><button type=button class=save-button>Save</button>
+
+  <p><progress class=status></progress>
 </template>
 
 <template id=process-template>
@@ -83,6 +99,13 @@
   <template class=input_source_id-template>
     <a href="" class=source_id-link>Source <code class=source_id></code></a>
   </template>
+  <p>Output:
+  <a href="" class=output_stream_id-link>Stream <code class=output_stream_id></code></a>
+</template>
+
+<template id=stream-template>
+  <h1>Stream <code class=stream_id></code></h1>
+  <progress class=status></progress>
 </template>
 
 <script>
@@ -109,22 +132,104 @@
     var progress = section.querySelector ('.status');
     progress.hidden = false;
 
-    fetch ('/source/' + encodeURIComponent (sourceId)).then (function (res) {
+    var url = '/source/' + encodeURIComponent (sourceId);
+    fetch (url).then (function (res) {
       return res.json ();
     }).then (function (json) {
-      Array.prototype.forEach.call (section.querySelectorAll ('[name=fetch_options]'), function (el) {
-        el.value = JSON.stringify (json.fetch.fetch_options);
+      section.stData = json;
+      $$ (section, 'input[name=fetch_options_url]').forEach (function (el) {
+        el.value = json.fetch.fetch_options.url || '';
+        el.onchange = function () {
+          if (this.value.length) {
+            section.stData.fetch.fetch_options.url = this.value;
+          } else {
+            delete section.stData.fetch.fetch_options.url;
+          }
+          section.stModified = true;
+          section.classList.add ('modified');
+          updateTabs ();
+        };
       });
-      Array.prototype.forEach.call (section.querySelectorAll ('[name=schedule_options]'), function (el) {
-        el.value = JSON.stringify (json.fetch.schedule_options);
+      $$ (section, 'input[name=schedule_options_every_seconds]').forEach (function (el) {
+        el.value = json.fetch.schedule_options.every_seconds || '';
+        el.onchange = function () {
+          if (this.value.length) {
+            section.stData.fetch.schedule_options.every_seconds = this.valueAsNumber;
+          } else {
+            delete section.stData.fetch.schedule_options.every_seconds;
+          }
+          section.stModified = true;
+          section.classList.add ('modified');
+          updateTabs ();
+        };
       });
+
+      $$ (section, '.save-button').forEach (function (el) {
+        el.onclick = function () {
+          section.stModified = false;
+          progress.hidden = false;
+          var fd = new FormData;
+          fd.append ('fetch_options', JSON.stringify (json.fetch.fetch_options));
+          fd.append ('schedule_options', JSON.stringify (json.fetch.schedule_options));
+          fetch (url, {method: "POST", body: fd}).then (function () {
+            progress.hidden = true;
+            if (!section.stModified) section.classList.remove ('modified');
+          }, function (error) {
+            progress.hidden = true;
+            section.stModified = true;
+            addLog ({error: {message: "Save error", error: error}});
+          });
+        }; // onclick
+      });
+
       progress.hidden = true;
+      addLog ({error: {message: "Saved", source_id: sourceId}});
+    }, function (error) {
+      progress.hidden = true;
+      addLog ({error: {message: "Load error", error: error}});
     });
 
     selectTab (section);
     updateTabs ();
     section.scrollIntoViewIfNeeded (true);
   } // loadSource
+
+  function loadStream (streamId) {
+    var section = document.getElementById ('stream/' + streamId);
+    if (section) {
+      selectTab (section);
+      updateTabs ();
+      return;
+    }
+
+    var template = document.querySelector ('#stream-template');
+    section = document.createElement ('section');
+    section.appendChild (template.content.cloneNode (true));
+    section.id = 'stream/' + streamId;
+
+    Array.prototype.forEach.call (section.querySelectorAll ('.stream_id'), function (el) {
+      el.textContent = streamId;
+    });
+
+    var tabs = document.querySelector ('#edit-tab-sections');
+    tabs.appendChild (section);
+
+    var progress = section.querySelector ('.status');
+    progress.hidden = false;
+
+    fetch ('/stream/' + encodeURIComponent (streamId)).then (function (res) {
+      return res.json ();
+    }).then (function (json) {
+      progress.hidden = true;
+    }, function (error) {
+      progress.hidden = true;
+      addLog ({error: {message: "Load error", error: error}});
+    });
+
+    selectTab (section);
+    updateTabs ();
+    section.scrollIntoViewIfNeeded (true);
+  } // loadStream
 
   function loadProcess (processId) {
     var section = document.getElementById ('process/' + processId);
@@ -149,7 +254,8 @@
     var progress = section.querySelector ('.status');
     progress.hidden = false;
 
-    fetch ('/process/' + encodeURIComponent (processId)).then (function (res) {
+    var url = '/process/' + encodeURIComponent (processId);
+    fetch (url).then (function (res) {
       return res.json ();
     }).then (function (json) {
       Array.prototype.forEach.call (section.querySelectorAll ('[name=process_options]'), function (el) {
@@ -174,7 +280,19 @@
         });
       }
 
+      if (json.process_options && json.process_options.output_stream_id) {
+        Array.prototype.forEach.call (section.querySelectorAll ('.output_stream_id'), function (el) {
+          el.textContent = json.process_options.output_stream_id;
+        });
+        Array.prototype.forEach.call (section.querySelectorAll ('.output_stream_id-link'), function (el) {
+          el.href = '#stream/' + json.process_options.output_stream_id;
+        });
+      }
+
       progress.hidden = true;
+    }, function (error) {
+      progress.hidden = true;
+      addLog ({error: {message: "Load error", error: error}});
     });
 
     selectTab (section);
@@ -199,7 +317,7 @@
         _subscribeURL (nextURL, onitem);
       }, 30*1000);
     }, function (error) {
-      addLog ({error: {message: error}});
+      addLog ({error: {message: "Load Error", error: error, subscription: {url: url}}});
       setTimeout (function () {
         _subscribeURL (nextURL, onitem);
       }, 30*1000);
@@ -211,6 +329,7 @@
 <template id=log-template>
   <a href class=source_id-link>Source <span class=source_id></span></a>
   <a href class=process_id-link>Process <span class=process_id></span></a>
+  <span class=error></span>
   <time class=timestamp></time>
   <pre class=bare></pre>
 </template>
@@ -259,6 +378,14 @@
       }
     });
 
+    Array.prototype.forEach.call (li.querySelectorAll ('.error'), function (el) {
+      if (item.error.error) {
+        el.textContent = item.error.error;
+      } else {
+        el.hidden = true;
+      }
+    });
+
     ul.insertBefore (li, ul.firstChild);
     if (ul.children.length > 100) {
       ul.removeChild (ul.lastChild);
@@ -275,6 +402,8 @@
       var path = p.split (/\//);
       if (path.length === 2 && path[0] === 'source') {
         loadSource (path[1]);
+      } else if (path.length === 2 && path[0] === 'stream') {
+        loadStream (path[1]);
       } else if (path.length === 2 && path[0] === 'process') {
         loadProcess (path[1]);
       } else {
