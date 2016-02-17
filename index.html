@@ -109,6 +109,7 @@
   <p>
     <a href class=fetched_url download>Fetched</a>
     <button type=button class=enqueue-button>Request fetch</button>
+    <button type=button class=enqueue-nofetch-button>Request reprocess</button>
 
   <p><button type=button class=save-button>Save</button>
   <p><progress class=status></progress>
@@ -161,7 +162,9 @@
 </template>
 
 <template id=step-template>
-  <p><input name=name class=field required>
+  <p><label>Name: <input name=name class=field required></label>
+  <p><label>Field: <input name=field class=field></label>
+  <p><label>Path: <input name=path class=field></label>
   <p><button type=button onclick="
     if (confirm ('Delete?')) parentNode.parentNode.remove ();
   ">Delete</button>
@@ -420,6 +423,11 @@
       $$ (section, '.enqueue-button').forEach (function (el) {
         el.onclick = function () {
           fetch ('/source/' + encodeURIComponent (sourceId) + '/enqueue', {method: "POST"});
+        };
+      });
+      $$ (section, '.enqueue-nofetch-button').forEach (function (el) {
+        el.onclick = function () {
+          fetch ('/source/' + encodeURIComponent (sourceId) + '/enqueue?skip_fetch=1', {method: "POST"});
         };
       });
 
@@ -751,12 +759,12 @@
       items.forEach (function (_) { onitem (_) });
       setTimeout (function () {
         _subscribeURL (nextURL, onitem);
-      }, 30*1000);
+      }, 10*1000);
     }, function (error) {
       addLog ({error: {message: "Load Error", error: error, subscription: {url: url}}});
       setTimeout (function () {
         _subscribeURL (url, onitem);
-      }, 30*1000);
+      }, 10*1000);
     });
   } // _subscribeURL
 </script>

@@ -102,6 +102,14 @@ sub add_fetch_task ($$;%) {
   });
 } # add_fetch_task
 
+sub add_fetched_task ($$$) {
+  my ($self, $fetch_options, $result) = @_;
+  my $fetch_key;
+  ($fetch_key, undef, undef) = serialize_fetch $fetch_options;
+  my ($url, $origin_key) = $self->_prepare_fetch ($fetch_options);
+  return $self->_onfetch ($fetch_key, $origin_key, $result);
+} # add_fetched_task
+
 sub schedule_next_fetch_task ($$$) {
   my ($self, $fetch_key, $result) = @_;
   return $self->db->select ('fetch_source', {
@@ -172,60 +180,51 @@ sub run_task ($) {
   });
 } # run_task
 
+sub _prepare_fetch ($$) {
+  my ($self, $options) = @_;
+  my $url = $options->{url} // '';
+  $url =~ s/\{day:([+-]?[0-9]+)\}/my @t = gmtime (time + $1 * 24*60*60); sprintf '%04d-%02d-%02d', $t[5]+1900, $t[4]+1, $t[3]/ge;
+  my $origin = Wanage::URL->new_from_string ($url)->ascii_origin;
+  my $origin_key = defined $origin ? sha1_hex +Dongry::Type->serialize ('text', $origin) : undef;
+  return ($url, $origin_key);
+} # _prepare_fetch
+
 my $HTTPTimeout = 6*50;
 
 sub fetch ($$$$) {
   my ($self, $fetch_key, $options, $result) = @_;
   # XXX skip if fetch_result is too new and not superreload
-  my $url = $options->{url} // '';
-  $url =~ s/\{day:([+-]?[0-9]+)\}/my @t = gmtime (time + $1 * 24*60*60); sprintf '%04d-%02d-%02d', $t[5]+1900, $t[4]+1, $t[3]/ge;
-  my $origin = Wanage::URL->new_from_string ($url)->ascii_origin;
-  my $origin_key = defined $origin ? sha1_hex +Dongry::Type->serialize ('text', $origin) : undef;
-  my $process = Straw::Process->new_from_db ($self->db);
-  return Promise->new (sub {
-    my ($ok, $ng) = @_;
-    # XXX redirect
-    http_get
-        url => $url,
-        anyevent => 1,
-        timeout => $HTTPTimeout,
-        cb => sub {
-          if ($_[1]->code >= 590) { # network error
-            $ng->($_[1]);
-          } else {
-            $ok->($_[1]);
-            # XXX 4xx, 5xx
-          }
-        };
-  })->then (sub {
-    my $db = $self->db;
-    return $db->insert ('fetch_result', [{
-      fetch_key => Dongry::Type->serialize ('text', $fetch_key),
-      fetch_options => Dongry::Type->serialize ('json', $options),
-      result => $_[0]->as_string,
-      expires => time + 60*60*10,
-    }], duplicate => {
-      result => $db->bare_sql_fragment ('VALUES(result)'),
-      expires => $db->bare_sql_fragment ('GREATEST(VALUES(expires),expires)'),
+  my ($url, $origin_key) = $self->_prepare_fetch ($options);
+  return Promise->resolve->then (sub {
+    return Promise->new (sub {
+      my ($ok, $ng) = @_;
+      # XXX redirect
+      http_get
+          url => $url,
+          anyevent => 1,
+          timeout => $HTTPTimeout,
+          cb => sub {
+            if ($_[1]->code >= 590) { # network error
+              $ng->($_[1]);
+            } else {
+              $ok->($_[1]);
+              # XXX 4xx, 5xx
+            }
+          };
+    })->then (sub {
+      my $db = $self->db;
+      return $db->insert ('fetch_result', [{
+        fetch_key => Dongry::Type->serialize ('text', $fetch_key),
+        fetch_options => Dongry::Type->serialize ('json', $options),
+        result => $_[0]->as_string,
+        expires => time + 60*60*10,
+      }], duplicate => {
+        result => $db->bare_sql_fragment ('VALUES(result)'),
+        expires => $db->bare_sql_fragment ('GREATEST(VALUES(expires),expires)'),
+      });
     });
   })->then (sub {
-    return $self->db->select ('strict_fetch_subscription', {
-      fetch_key => Dongry::Type->serialize ('text', $fetch_key),
-    }, fields => ['process_id'])->then (sub {
-      $result->{process} = 1;
-      return $process->add_process_task
-          ([map { $_->{process_id} } @{$_[0]->all}], fetch_key => $fetch_key);
-    });
-  })->then (sub {
-    return unless defined $origin_key;
-    return $self->db->select ('origin_fetch_subscription', {
-      origin_key => Dongry::Type->serialize ('text', $origin_key),
-    }, fields => ['process_id'])->then (sub {
-      $result->{process} = 1;
-      return $process->add_process_task
-          ([map { $_->{process_id} } @{$_[0]->all}],
-           fetch_key => $fetch_key);
-    });
+    return $self->_onfetch ($fetch_key, $origin_key, $result);
   })->then (sub {
     return $self->error
         (message => 'No error',
@@ -249,6 +248,28 @@ sub fetch ($$$$) {
     }
   });
 } # fetch
+
+sub _onfetch ($$$$) {
+  my ($self, $fetch_key, $origin_key, $result) = @_;
+  my $process = Straw::Process->new_from_db ($self->db);
+  return $self->db->select ('strict_fetch_subscription', {
+    fetch_key => Dongry::Type->serialize ('text', $fetch_key),
+  }, fields => ['process_id'])->then (sub {
+    $result->{process} = 1;
+    return $process->add_process_task
+        ([map { $_->{process_id} } @{$_[0]->all}], fetch_key => $fetch_key);
+  })->then (sub {
+    return unless defined $origin_key;
+    return $self->db->select ('origin_fetch_subscription', {
+      origin_key => Dongry::Type->serialize ('text', $origin_key),
+    }, fields => ['process_id'])->then (sub {
+      $result->{process} = 1;
+      return $process->add_process_task
+          ([map { $_->{process_id} } @{$_[0]->all}],
+           fetch_key => $fetch_key);
+    });
+  });
+} # _onfetch
 
 sub load_fetch_result ($$) {
   my ($self, $fetch_key) = @_;

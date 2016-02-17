@@ -68,12 +68,12 @@ sub save_process ($$$) {
     my $keys = $_[0];
     if (@$keys) {
       return $self->db->insert ('strict_fetch_subscription', [map { {
-        fetch_key => $_,
+        fetch_key => Dongry::Type->serialize ('text', $_),
         process_id => Dongry::Type->serialize ('text', $process_id),
       } } @$keys], duplicate => 'ignore')->then (sub {
         return $self->db->delete ('strict_fetch_subscription', {
           fetch_key => {-not_in => $keys},
-          process_id => $process_id,
+          process_id => Dongry::Type->serialize ('text', $process_id),
         });
       });
     } else {
@@ -365,8 +365,11 @@ sub run_task ($) {
     for my $data (@data) { # any $data in @data has $same $data->{process_id}
       my $args = Dongry::Type->parse ('json', $data->{process_args});
       $p = $p->then (sub {
+        local $self->{debug_process_id} = $process_id;
         return $self->run_process
             ($process_id, $process_options, $args, $result);
+      })->then (sub {
+        return Promise->all ($self->{promises} || []);
       })->then (sub {
         return $self->error
             (process_id => $process_id,
@@ -409,6 +412,14 @@ sub error ($%) {
     timestamp => time,
   }]);
 } # error
+
+sub debug ($$) {
+  my ($self, $msg) = @_;
+  push @{$self->{promises} || []},
+      $self->error (message => $msg,
+                    process_id => $self->{debug_process_id} || 0);
+  return undef;
+} # debug
 
 sub load_error_logs ($%) {
   my ($self, %args) = @_;

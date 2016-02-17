@@ -47,6 +47,15 @@ $Straw::Step->{httpres_to_doc} = {
   },
 }; # httpres_to_doc
 
+$Straw::Step->{httpres_to_json} = {
+  in_type => 'HTTP::Response',
+  code => sub {
+    my $in = $_[2];
+    my $res = $in->{res};
+    return {type => 'Object', object => json_bytes2perl $res->content};
+  },
+}; # httpres_to_json
+
 use Straw::Fetch; # XXX
 $Straw::ItemStep->{fetch_item_url} = sub {
   my ($self, $step, $item, $result) = @_;
@@ -253,6 +262,14 @@ $Straw::ItemStep->{use_alternate_link_as_url} = sub {
   return $item;
 }; # use_alternate_link_as_url
 
+$Straw::ItemStep->{set_key} = sub {
+  my ($self, $step, $item, $result) = @_;
+  my $key = $step->{field} // die "No |field| specified for the step";
+  my $v = $item->{0}->{props}->{$key};
+  $item->{0}->{props}->{key} = $v if defined $v and length $v;
+  return $item;
+}; # set_key
+
 $Straw::ItemStep->{use_url_as_key} = sub {
   my ($self, $step, $item, $result) = @_;
   my $v = $item->{0}->{props}->{url};
@@ -322,6 +339,50 @@ $Straw::ItemStep->{cleanup_title} = sub {
   }
   return $item;
 }; # cleanup_title
+
+$Straw::Step->{extract_array_items} = {
+  in_type => 'Object',
+  code => sub {
+    my $step = $_[1];
+    my $in = $_[2];
+    my $path = $step->{path} // '';
+    die "Bad path |$path|" unless $path =~ m{^/};
+    my @path = split m{/}, $path, -1;
+    shift @path;
+    my $list;
+    my $v = $in->{object};
+    if (@path) {
+      my $last = pop @path;
+      my @current;
+      while (@path) {
+        my $p = shift @path;
+        push @current, $p;
+        if (defined $v and ref $v eq 'HASH') {
+          $v = $v->{$p};
+        } else {
+          die "|@current| is not an object";
+        }
+      }
+      if (defined $v->{$last} and ref $v->{$last} eq 'ARRAY') {
+        $list = $v->{$last};
+      } else {
+        push @current, $last;
+        die "|@current| is not an array";
+      }
+    } else {
+      if (defined $v and ref $v eq 'ARRAY') {
+        $list = $v;
+      } else {
+        die "|/| is not an array";
+      }
+    }
+    
+    my $out = {type => 'Stream', props => {}, items => []};
+    push @{$out->{items}}, map { +{0 => {props => $_}} } @$list;
+
+    return $out;
+  },
+}; # extract_array_items
 
 1;
 

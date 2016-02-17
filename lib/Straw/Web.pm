@@ -139,8 +139,18 @@ sub main ($$$) {
         return $app->throw_error (404, source_name => 'Fetch source not found')
             unless defined $source;
         # XXX don't insert if time - fetch_result.timestamp < threshold
-        return $fetch->add_fetch_task
-            (Dongry::Type->parse ('json', $source->{fetch_options}));
+        my $fetch_options = Dongry::Type->parse
+            ('json', $source->{fetch_options});
+        if ($app->bare_param ('skip_fetch')) {
+          my $result = {};
+          return $fetch->add_fetched_task ($fetch_options, $result)->then (sub {
+            $Worker->run ('process') # don't return
+                if defined $result->{process};
+            return undef;
+          });
+        } else {
+          return $fetch->add_fetch_task ($fetch_options);
+        }
         #XXX then, add schedule_task
       })->then (sub {
         $app->http->set_status (202);
