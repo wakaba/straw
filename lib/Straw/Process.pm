@@ -367,7 +367,12 @@ sub run_task ($) {
       $p = $p->then (sub {
         return $self->run_process
             ($process_id, $process_options, $args, $result);
-      })->catch (sub {
+      })->then (sub {
+        return $self->error
+            (process_id => $process_id,
+             process_options => $process_options,
+             message => 'No error');
+      }, sub {
         if (ref $_[0] eq 'HASH') {
           return $self->error (%{$_[0]}, process_id => $process_id);
         } else {

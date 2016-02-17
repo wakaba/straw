@@ -61,11 +61,20 @@ sub save_sink ($$$$) {
   });
 } # save_sink
 
+sub get_sink_ids_by_stream_id ($$) {
+  my ($self, $stream_id) = @_;
+  return $self->db->select ('sink', {
+    stream_id => Dongry::Type->serialize ('text', $stream_id),
+  }, fields => ['sink_id'])->then (sub {
+    return [map { {sink_id => ''.$_->{sink_id}} } @{$_[0]->all}];
+  });
+} # get_sink_ids_by_stream_id
+
 1;
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

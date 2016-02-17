@@ -42,19 +42,65 @@ test {
   my $c = shift;
   return GET ($c, qq{/stream/532333})->then (sub {
     my $res = $_[0];
-    my $json = json_bytes2perl $res->content;
     test {
       is $res->code, 404;
     } $c;
   })->then (sub { done $c; undef $c });
 } wait => $wait, n => 1, name => '/stream/{source_id} GET not found';
 
+test {
+  my $c = shift;
+  return GET ($c, qq{/stream/532333/sinks})->then (sub {
+    my $res = $_[0];
+    my $json = json_bytes2perl $res->content;
+    test {
+      is $res->code, 200;
+      is 0+@{$json->{items}}, 0;
+    } $c;
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 2, name => '/stream/{source_id}/sinks GET not found';
+
+test {
+  my $c = shift;
+  return create_stream ($c)->then (sub {
+    my $stream = $_[0];
+    return GET ($c, qq{/stream/$stream->{stream_id}/sinks})->then (sub {
+      my $res = $_[0];
+      my $json = json_bytes2perl $res->content;
+      test {
+        is $res->code, 200;
+        is 0+@{$json->{items}}, 0;
+      } $c;
+    });
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 2, name => '/stream/{source_id}/sinks empty';
+
+test {
+  my $c = shift;
+  return create_stream ($c)->then (sub {
+    my $stream = $_[0];
+    return create_sink ($c, $stream)->then (sub {
+      my $sink = $_[0];
+      return GET ($c, qq{/stream/$stream->{stream_id}/sinks})->then (sub {
+        my $res = $_[0];
+        my $json = json_bytes2perl $res->content;
+        test {
+          is $res->code, 200;
+          is 0+@{$json->{items}}, 1;
+          is $json->{items}->[0]->{sink_id}, $sink->{sink_id};
+          like $res->content, qr{"sink_id"\s*:\s*"};
+        } $c;
+      });
+    });
+  })->then (sub { done $c; undef $c });
+} wait => $wait, n => 4, name => '/stream/{source_id}/sinks not empty';
+
 run_tests;
 stop_web_server;
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

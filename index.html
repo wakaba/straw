@@ -116,16 +116,47 @@
   <p>Output: <span class=item-list data-name=output_ids data-min=1 data-max=1 data-stream-id></span>
 
   <p><button type=button class=save-button>Save</button>
-
   <p><progress class=status></progress>
 </template>
 
 <template id=stream-template>
   <h1>Stream <code class=stream_id></code></h1>
-  <progress class=status></progress>
+
+  <p>Sinks:
+    <button type=button class=reload-sinks-button>Reload</button>
+    <button type=button class=new-sink-button>New sink</button>
+    <ul class=sink-list>
+    </ul>
+
+  <p><progress class=status></progress>
+</template>
+
+<template id=sink-template>
+  <h1>Sink <code class=sink_id></code></h1>
+
+  <p><input name=stream_id pattern=[0-9]+ required> <a href=javascript: class=open-stream_id>Open</a>
+  <p><input name=channel_id pattern=[0-9]+ required>
+
+  <p><button type=button class=save-button>Save</button>
+  <p><progress class=status></progress>
+</template>
+
+<template id=sink-item-template>
+  Sink <a href="" class="sink_id sink_link"></a>
 </template>
 
 <script>
+  function createSinkItem (item) {
+    var content = document.querySelector ('#sink-item-template').content.cloneNode (true);
+    $$ (content, '.sink_id').forEach (function (el) {
+      el.textContent = item.sink_id;
+    });
+    $$ (content, '.sink_link').forEach (function (el) {
+      el.href = '#sink/' + encodeURIComponent (item.sink_id);
+    });
+    return content;
+  } // createSinkItem
+
   function makeItemList (section, sel, input) {
     $$ (section, sel).forEach (function (el) {
       if (el.hasAttribute ('data-source-id')) { (function () {
@@ -328,11 +359,42 @@
     var progress = section.querySelector ('.status');
     progress.hidden = false;
 
+    var loadSinkList = function () {
+      return fetch ('/stream/' + encodeURIComponent (streamId) + '/sinks').then (function (res) {
+        return res.json ();
+      }).then (function (json) {
+        $$ (section, '.sink-list').forEach (function (list) {
+          list.textContent = '';
+          json.items.forEach (function (item) {
+            var li = document.createElement ('li');
+            li.appendChild (createSinkItem (item));
+            list.appendChild (li);
+          });
+        });
+      });
+    }; // loadSinkList
+
     fetch ('/stream/' + encodeURIComponent (streamId)).then (function (res) {
       return res.json ();
     }).then (function (json) {
+      $$ (section, '.reload-sinks-button').forEach (function (el) {
+        el.onclick = loadSinkList;
+      });
+      $$ (section, '.new-sink-button').forEach (function (el) {
+        el.onclick = function () {
+          var fd = new FormData;
+          fd.append ('stream_id', json.stream_id);
+          fetch ('/sink', {method: "POST", body: fd}).then (function (res) {
+            return res.json ();
+          }).then (function (json) {
+            return loadSinkList ();
+          });
+        };
+      });
+      return loadSinkList ();
+    }).then (function () {
       progress.hidden = true;
-    }, function (error) {
+    }).catch (function (error) {
       progress.hidden = true;
       addLog ({error: {message: "Load error", error: error}});
     });
@@ -415,6 +477,74 @@
     updateTabs ();
     section.scrollIntoViewIfNeeded (true);
   } // loadProcess
+
+  function loadSink (sinkId) {
+    var section = document.getElementById ('sink/' + sinkId);
+    if (section) {
+      selectTab (section);
+      updateTabs ();
+      return;
+    }
+
+    var template = document.querySelector ('#sink-template');
+    section = document.createElement ('section');
+    section.appendChild (template.content.cloneNode (true));
+    section.id = 'sink/' + sinkId;
+
+    $$ (section, '.sink_id').forEach (function (el) {
+      el.textContent = sinkId;
+    });
+
+    var tabs = document.querySelector ('#edit-tab-sections');
+    tabs.appendChild (section);
+
+    var progress = section.querySelector ('.status');
+    progress.hidden = false;
+
+    var url = '/sink/' + encodeURIComponent (sinkId);
+    fetch (url).then (function (res) {
+      return res.json ();
+    }).then (function (json) {
+      $$ (section, 'input[name=stream_id]').forEach (function (input) {
+        input.value = json.stream_id;
+      });
+      $$ (section, 'a.open-stream_id').forEach (function (a) {
+        a.onclick = function () {
+          location.href = '#stream/' + encodeURIComponent (section.querySelector ('input[name=stream_id]').value);
+        };
+      });
+      $$ (section, 'input[name=channel_id]').forEach (function (input) {
+        input.value = json.channel_id;
+      });
+
+      $$ (section, '.save-button').forEach (function (el) {
+        el.onclick = function () {
+          section.stModified = false;
+          progress.hidden = false;
+          var fd = new FormData;
+          fd.append ('stream_id', section.querySelector ('input[name=stream_id]').value);
+          fd.append ('channel_id', section.querySelector ('input[name=channel_id]').value);
+          fetch (url, {method: "POST", body: fd}).then (function () {
+            progress.hidden = true;
+            if (!section.stModified) section.classList.remove ('modified');
+          }, function (error) {
+            progress.hidden = true;
+            section.stModified = true;
+            addLog ({error: {message: "Save error", error: error}});
+          });
+        }; // onclick
+      });
+
+      progress.hidden = true;
+    }).catch (function (error) {
+      progress.hidden = true;
+      addLog ({error: {message: "Load error", error: error}});
+    });
+
+    selectTab (section);
+    updateTabs ();
+    section.scrollIntoViewIfNeeded (true);
+  } // loadSink
 </script>
 
 <script>
@@ -522,6 +652,8 @@
         loadStream (path[1]);
       } else if (path.length === 2 && path[0] === 'process') {
         loadProcess (path[1]);
+      } else if (path.length === 2 && path[0] === 'sink') {
+        loadSink (path[1]);
       } else {
         addLog ({error: {message: "Bad path", path: p}});
       }
