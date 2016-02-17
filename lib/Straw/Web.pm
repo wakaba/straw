@@ -147,7 +147,7 @@ sub main ($$$) {
         $class->send_json ($app, {});
         $Worker->run ('fetch');
       });
-    } elsif (@$path == 3 and $path->[2] eq 'fetched') { # XXX debug only
+    } elsif (@$path == 3 and $path->[2] eq 'fetched') {
       # /source/{source_id}/fetched
       my $fetch = Straw::Fetch->new_from_db ($db);
       return $fetch->load_fetch_source_by_id ($path->[1])->then (sub {
@@ -205,6 +205,14 @@ sub main ($$$) {
         next_url => $app->http->url->resolve_string ('logs?after=' . $next_after)->stringify,
         items => $items,
       });
+    });
+  }
+
+  if (@$path == 3 and $path->[0] eq 'fetch' and $path->[2] eq 'sources') {
+    # /fetch/{fetch_key}/sources
+    my $fetch = Straw::Fetch->new_from_db ($db);
+    return $fetch->get_source_ids_by_fetch_key ($path->[1])->then (sub {
+      return $class->send_json ($app, {items => $_[0]});
     });
   }
 

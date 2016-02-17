@@ -177,14 +177,16 @@ my $HTTPTimeout = 6*50;
 sub fetch ($$$$) {
   my ($self, $fetch_key, $options, $result) = @_;
   # XXX skip if fetch_result is too new and not superreload
-  my $origin = Wanage::URL->new_from_string ($options->{url} // '')->ascii_origin;
+  my $url = $options->{url} // '';
+  $url =~ s/\{day:([+-]?[0-9]+)\}/my @t = gmtime (time + $1 * 24*60*60); sprintf '%04d-%02d-%02d', $t[5]+1900, $t[4]+1, $t[3]/ge;
+  my $origin = Wanage::URL->new_from_string ($url)->ascii_origin;
   my $origin_key = defined $origin ? sha1_hex +Dongry::Type->serialize ('text', $origin) : undef;
   my $process = Straw::Process->new_from_db ($self->db);
   return Promise->new (sub {
     my ($ok, $ng) = @_;
     # XXX redirect
     http_get
-        url => $options->{url},
+        url => $url,
         anyevent => 1,
         timeout => $HTTPTimeout,
         cb => sub {
@@ -224,7 +226,13 @@ sub fetch ($$$$) {
           ([map { $_->{process_id} } @{$_[0]->all}],
            fetch_key => $fetch_key);
     });
-  })->catch (sub {
+  })->then (sub {
+    return $self->error
+        (message => 'No error',
+         fetch_key => $fetch_key,
+         origin_key => $origin_key,
+         fetch_options => $options);
+  }, sub {
     my $error = $_[0];
     if (UNIVERSAL::isa ($error, 'HTTP::Response')) {
       return $self->error
@@ -284,6 +292,15 @@ sub load_error_logs ($%) {
     } @{$_[0]->all}];
   });
 } # load_error_logs
+
+sub get_source_ids_by_fetch_key ($$) {
+  my ($self, $fetch_key) = @_;
+  return $self->db->select ('fetch_source', {
+    fetch_key => Dongry::Type->serialize ('text', $fetch_key),
+  }, fields => ['source_id'])->then (sub {
+    return [map { {source_id => ''.$_->{source_id}} } @{$_[0]->all}];
+  });
+} # get_source_ids_by_fetch_key
 
 1;
 
