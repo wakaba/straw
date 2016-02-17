@@ -139,10 +139,16 @@
 
   <p><button type=button class=save-button>Save</button>
   <p><progress class=status></progress>
+
+  <ul class=data-list></ul>
 </template>
 
 <template id=sink-item-template>
   Sink <a href="" class="sink_id sink_link"></a>
+</template>
+
+<template id=stream-data-item-template>
+  <pre class=dump></pre>
 </template>
 
 <script>
@@ -156,6 +162,14 @@
     });
     return content;
   } // createSinkItem
+
+  function createStreamDataItem (item) {
+    var content = document.querySelector ('#stream-data-item-template').content.cloneNode (true);
+    $$ (content, '.dump').forEach (function (el) {
+      el.textContent = JSON.stringify (item);
+    });
+    return content;
+  } // createStreamDataItem
 
   function makeItemList (section, sel, input) {
     $$ (section, sel).forEach (function (el) {
@@ -535,6 +549,14 @@
         }; // onclick
       });
 
+      $$ (section, '.data-list').forEach (function (list) {
+        subscribe (url + '/items', function (item) {
+          var li = document.createElement ('li');
+          li.appendChild (createStreamDataItem (item));
+          list.insertBefore (li, list.firstChild);
+        });
+      });
+
       progress.hidden = true;
     }).catch (function (error) {
       progress.hidden = true;
@@ -662,3 +684,21 @@
   onhashchange = f;
   f ();
 </script>
+<!--
+
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Affero General Public License for more details.
+
+You does not have received a copy of the GNU Affero General Public
+License along with this program, see <http://www.gnu.org/licenses/>.
+
+-->
