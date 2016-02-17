@@ -111,7 +111,10 @@
 
   <p>Input: <span class=item-list data-name=input_ids data-min=0 data-source-id data-stream-id></span>
 
-  <!-- XXX steps -->
+  <p>Steps:
+    <ul class=steps>
+    </ul>
+  <p><button type=button class=append-step-button>Append a step</button>
 
   <p>Output: <span class=item-list data-name=output_ids data-min=1 data-max=1 data-stream-id></span>
 
@@ -143,6 +146,23 @@
   <ul class=data-list></ul>
 </template>
 
+<template id=step-template>
+  <p><input name=name class=field required>
+  <p><button type=button onclick="
+    if (confirm ('Delete?')) parentNode.parentNode.remove ();
+  ">Delete</button>
+  <button type=button onclick="
+    var el = parentNode.parentNode;
+    if (el.previousElementSibling)
+      el.parentNode.insertBefore (el, el.previousElementSibling);
+  ">Up</button>
+  <button type=button onclick="
+    var el = parentNode.parentNode;
+    if (el.nextElementSibling)
+      el.parentNode.insertBefore (el.nextElementSibling, el);
+  ">Down</button>
+</template>
+
 <template id=sink-item-template>
   Sink <a href="" class="sink_id sink_link"></a>
 </template>
@@ -152,6 +172,15 @@
 </template>
 
 <script>
+  function createStepItem (step) {
+    var content = document.querySelector ('#step-template').content.cloneNode (true);
+    $$ (content, '.field').forEach (function (el) {
+      if (step[el.name] != null) el.value = step[el.name];
+      el.onchange = function () { step[el.name] = el.value };
+    });
+    return content;
+  } // createStepItem
+
   function createSinkItem (item) {
     var content = document.querySelector ('#sink-item-template').content.cloneNode (true);
     $$ (content, '.sink_id').forEach (function (el) {
@@ -459,6 +488,26 @@
       makeItemList (section, '.item-list[data-name=output_ids]',
                     {streamIds: outputStreamIds}); // XXX onchange
 
+      var steps = json.process_options.steps || [];
+      if (!steps.forEach) steps = [];
+      $$ (section, '.steps').forEach (function (list) {
+        steps.forEach (function (step) {
+          var li = document.createElement ('li');
+          li.stStep = step;
+          li.appendChild (createStepItem (step));
+          list.appendChild (li);
+        });
+      });
+
+      $$ (section, '.append-step-button').forEach (function (button) {
+        button.onclick = function () {
+          var li = document.createElement ('li');
+          li.stStep = {};
+          li.appendChild (createStepItem (li.stStep));
+          section.querySelector ('.steps').appendChild (li);
+        };
+      });
+
       $$ (section, '.save-button').forEach (function (el) {
         el.onclick = function () {
           section.stModified = false;
@@ -467,6 +516,9 @@
           var input = section.querySelector ('.item-list[data-name=input_ids]').stGetValues ();
           json.process_options.input_source_ids = input.sourceIds;
           json.process_options.input_stream_ids = input.streamIds;
+          json.process_options.steps = $$ (section, '.steps > li').map (function (el) {
+            return el.stStep;
+          });
           var output = section.querySelector ('.item-list[data-name=output_ids]').stGetValues ();
           json.process_options.output_stream_id = output.streamIds[0];
           fd.append ('process_options', JSON.stringify (json.process_options));
