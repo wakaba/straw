@@ -180,70 +180,80 @@ $Straw::ItemStep->{atom_updated_as_timestamp} = sub {
   return $item;
 }; # atom_updated_as_timestamp
 
-$Straw::Step->{parse_html} = {
+$Straw::Step->{extract_elements} = {
   in_type => 'Document',
   code => sub {
+    my $step = $_[1];
     my $in = $_[2];
-    my $out = {type => 'Stream', props => {}, items => []};
+    my $out = {type => 'Stream', props => {}};
+
     my $x = $in->{document}->title;
     $out->{props}->{title} = $x if length $x;
-#    for (@{$in->{document}->query_selector_all ('.additional-list > li')}) {
-    for (@{$in->{document}->query_selector_all ('.post')}) {
-      my $item = {};
 
-      my $video = $_->query_selector ('video');
-      if (defined $video) {
-        $item->{props}->{video_url} = $video->src;
-      }
+    $out->{items} = [map {
+      {0 => {element => $_}};
+    } $in->{document}->query_selector_all ($step->{path})->to_list];
 
-      #my $link = $_->query_selector ('a');
-      my $link = $_->query_selector ('.time a');
-      if (defined $link) {
-        $link = $link->clone_node (1);
-        for (@{$link->query_selector_all ('rt, rp')}) {
-          my $parent = $_->parent_node;
-          $parent->remove_child ($_) if defined $parent;
-        }
-        #$item->{props}->{title} = $link->text_content;
-        $item->{props}->{url} = $link->href;
-      }
-
-      my $user = $_->query_selector ('h2 + a');
-      if (defined $user) {
-        $item->{props}->{author_name} = $user->text_content;
-        $item->{props}->{author_url} = $user->href;
-      }
-
-      my $url = $_->query_selector ('h2 a');
-      if (defined $url) {
-        $item->{props}->{url} = $url->href;
-      }
-
-      my $desc = $_->query_selector ('.description');
-      if (defined $desc) {
-        $item->{props}->{title} = $desc->text_content;
-      }
-
-      my $time = $_->query_selector ('p:-manakai-contains("Uploaded at")');
-      if (defined $time) {
-        if ($time->text_content =~ /Uploaded at (\S+)/) {
-          my $parser = Web::DateTime::Parser->new;
-          my $dt = $parser->parse_html_datetime_value ($1);
-          $item->{props}->{timestamp} = $dt->to_unix_number if defined $dt;
-        }
-      }
-
-      push @{$out->{items}}, {0 => $item} if keys %$item;
-    }
     return $out;
   },
-}; # parse_html
+}; # extract_elements
+
+$Straw::ItemStep->{set_text_prop_from_element} = sub {
+  my ($self, $step, $item, $result) = @_;
+  die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
+  my $el = $item->{0}->{element}->query_selector ($step->{path});
+  return $item unless defined $el;
+  $item->{0}->{props}->{$step->{field}} = $el->text_content;
+  return $item;
+}; # set_text_prop_from_element
+
+$Straw::ItemStep->{set_url_prop_from_element} = sub {
+  my ($self, $step, $item, $result) = @_;
+  die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
+  my $el = $item->{0}->{element}->query_selector ($step->{path});
+  return $item unless defined $el;
+  my $url;
+  $url = $el->href if $el->can ('href');
+  $item->{0}->{props}->{$step->{field}} = $url if defined $url and length $url;
+  return $item;
+}; # set_url_prop_from_element
+
+$Straw::ItemStep->{set_time_prop_from_element} = sub {
+  my ($self, $step, $item, $result) = @_;
+  die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
+  my $el = $item->{0}->{element}->query_selector ($step->{path});
+  return $item unless defined $el;
+  my $time;
+  $time = $el->datetime if $el->can ('datetime');
+  $time = $el->text_content if not defined $time or not length $time;
+  if (defined $time and length $time) {
+    my $parser = Web::DateTime::Parser->new;
+    my $dt = $parser->parse_html_datetime_value ($time);
+    $item->{0}->{props}->{$step->{field}} = $dt->to_unix_number if defined $dt;
+  }
+  return $item;
+}; # set_time_prop_from_element
+
+$Straw::ItemStep->{dump_to_prop_from_element} = sub {
+  my ($self, $step, $item, $result) = @_;
+  unless (defined $item->{0} and defined $item->{0}->{element}) {
+    $item->{0}->{props}->{$step->{field}} = "No |element}";
+  } else {
+    my $el = $item->{0}->{element}->query_selector ($step->{path});
+    unless (defined $el) {
+      $item->{0}->{props}->{$step->{field}} = "No match ($step->{path})";
+    } else {
+      $item->{0}->{props}->{$step->{field}} = $el->outer_html;
+    }
+  }
+  return $item;
+}; # dump_to_prop_from_element
 
 $Straw::Step->{dump_stream} = {
   in_type => 'Stream',
   code => sub {
     my $in = $_[2];
-    $_[0]->onlog->($_[0], perl2json_chars_for_record $in);
+    $_[0]->debug (perl2json_chars_for_record $in);
     return $in;
   },
 }; # dump_stream

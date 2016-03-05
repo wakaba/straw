@@ -152,13 +152,21 @@
 <template id=sink-template>
   <h1>Sink <code class=sink_id></code></h1>
 
-  <p><input name=stream_id pattern=[0-9]+ required> <a href=javascript: class=open-stream_id>Open</a>
-  <p><input name=channel_id pattern=[0-9]+ required>
+  <section>
+    <h1>Stream</h1>
+
+    <p><label>ID: <input name=stream_id pattern=[0-9]+ required></label>
+      <a href=javascript: class=open-stream_id>Open</a>
+    <p><label>Channel ID: <input name=channel_id pattern=[0-9]+ required></label>
+  </section>
 
   <p><button type=button class=save-button>Save</button>
   <p><progress class=status></progress>
 
-  <ul class=data-list></ul>
+  <section>
+    <h1><a class=items-link>Items</a></h1>
+    <ul class=data-list></ul>
+  </section>
 </template>
 
 <template id=step-template>
@@ -685,6 +693,10 @@
       el.textContent = sinkId;
     });
 
+    $$ (section, '.items-link').forEach (function (el) {
+      el.href = '/sink/' + sinkId + '/items';
+    });
+
     var tabs = document.querySelector ('#edit-tab-sections');
     tabs.appendChild (section);
 
@@ -768,6 +780,16 @@
     });
   } // _subscribeURL
 </script>
+
+<p><button type=button onclick="
+  var fd = new FormData;
+  fd.append ('process_options', JSON.stringify ({}));
+  fetch ('/process', {method: 'POST', body: fd}).then (function (res) {
+    return res.json ();
+  }).then (function (json) {
+    loadProcess (json.process_id);
+  });
+">New process</button>
 
 <ul id=logs></ul>
 <template id=log-template>
