@@ -234,6 +234,17 @@ $Straw::ItemStep->{set_time_prop_from_element} = sub {
   return $item;
 }; # set_time_prop_from_element
 
+$Straw::ItemStep->{set_rss_time_prop_from_element} = sub {
+  my ($self, $step, $item, $result) = @_;
+  die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
+  my $el = $item->{0}->{element}->query_selector ($step->{path});
+  return $item unless defined $el;
+  my $parser = Web::DateTime::Parser->new;
+  my $dt = $parser->parse_rss2_date_time_string ($el->text_content);
+  $item->{0}->{props}->{$step->{field}} = $dt->to_unix_number if defined $dt;
+  return $item;
+}; # set_rss_time_prop_from_element
+
 $Straw::ItemStep->{dump_to_prop_from_element} = sub {
   my ($self, $step, $item, $result) = @_;
   unless (defined $item->{0} and defined $item->{0}->{element}) {
