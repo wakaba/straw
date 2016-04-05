@@ -3,6 +3,7 @@ all:
 WGET = wget
 CURL = curl
 GIT = git
+PERL = ./perl
 
 updatenightly: local/bin/pmbp.pl
 	$(CURL) -s -S -L https://gist.githubusercontent.com/wakaba/34a71d3137a52abb562d/raw/gistfile1.txt | sh
@@ -49,6 +50,9 @@ create-commit-for-heroku:
 	git rm modules/* --cached
 	git add -f modules/*/*
 	git commit -m "for heroku"
+
+build-heroku:
+	$(PERL) bin/build-heroku.pl
 
 ## ------ Tests ------
 
