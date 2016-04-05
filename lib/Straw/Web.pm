@@ -8,6 +8,7 @@ use Promised::Command::Signals;
 use JSON::PS;
 use Wanage::HTTP;
 use Warabe::App;
+use Web::UserAgent::Functions qw(http_post);
 use Dongry::Database;
 use Dongry::Type;
 use Dongry::Type::JSONPS;
@@ -18,11 +19,11 @@ use Straw::Worker;
 use Straw::Sink;
 
 my $config_path = path ($ENV{APP_CONFIG} // die "Bad |APP_CONFIG|");
-my $config = json_bytes2perl $config_path->slurp;
+my $Config = json_bytes2perl $config_path->slurp;
 
-my $DBSources = {master => {dsn => Dongry::Type->serialize ('text', $config->{alt_dsns}->{master}->{straw}),
+my $DBSources = {master => {dsn => Dongry::Type->serialize ('text', $Config->{alt_dsns}->{master}->{straw}),
                             writable => 1, anyevent => 1},
-                 default => {dsn => Dongry::Type->serialize ('text', $config->{dsns}->{straw}),
+                 default => {dsn => Dongry::Type->serialize ('text', $Config->{dsns}->{straw}),
                              anyevent => 1}};
 
 my $IndexFile = Promised::File->new_from_path
@@ -82,6 +83,14 @@ sub psgi_app ($) {
         return $db->disconnect;
       }, sub {
         my $e = $_[0];
+        http_post
+            url => $Config->{ikachan_prefix} . '/privmsg',
+            params => {
+              channel => $Config->{ikachan_channel},
+              message => (sprintf "%s %s", __PACKAGE__, $_[0]),
+              #rules => $rules,
+            },
+            anyevent => 1;
         return $db->disconnect->then (sub { die $e }, sub { die $e });
       });
     });
