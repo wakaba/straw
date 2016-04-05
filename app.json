@@ -1,0 +1,5 @@
+{
+  "buildpacks": [
+    {"url": "https://github.com/wakaba/heroku-buildpack-perl-pmbp"}
+  ]
+}
