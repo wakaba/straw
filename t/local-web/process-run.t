@@ -67,9 +67,7 @@ test {
     return create_process ($c, $source => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream);
   })->then (sub {
     $process = $_[0];
@@ -167,14 +165,13 @@ test {
     return create_process ($c, $source => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream);
   })->then (sub {
     $process = $_[0];
     return create_process ($c, $stream => [
-      {name => 'rss_desc_text'},
+#XXX
+#      {name => 'rss_desc_text'},
     ] => $stream2);
   })->then (sub {
     $process2 = $_[0];
@@ -300,23 +297,20 @@ test {
     return create_process ($c, $source => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream);
   })->then (sub {
     $process = $_[0];
     return create_process ($c, $source2 => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream);
   })->then (sub {
     $process2 = $_[0];
     return create_process ($c, $stream => [
-      {name => 'rss_desc_text'},
+#XXX
+#      {name => 'rss_desc_text'},
     ] => $stream2);
   })->then (sub {
     $process3 = $_[0];
@@ -442,23 +436,20 @@ test {
     return create_process ($c, $source => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream);
   })->then (sub {
     $process = $_[0];
     return create_process ($c, $source2 => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream2);
   })->then (sub {
     $process2 = $_[0];
     return create_process ($c, [$stream, $stream2] => [
-      {name => 'rss_desc_text'},
+#XXX
+#      {name => 'rss_desc_text'},
     ] => $stream3);
   })->then (sub {
     $process3 = $_[0];
@@ -591,23 +582,20 @@ test {
     return create_process ($c, $source => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream);
   })->then (sub {
     $process = $_[0];
     return create_process ($c, $source2 => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream2);
   })->then (sub {
     $process2 = $_[0];
     return create_process ($c, [$stream, $stream2] => [
-      {name => 'rss_desc_text'},
+#XXX
+#      {name => 'rss_desc_text'},
     ] => $stream3, channel_map => {
       $stream2->{stream_id} => {0 => 52},
     });
@@ -643,7 +631,9 @@ test {
       my $item1 = $json->{items}->[0];
       is $item1->{data}->{url}, q<https://url/item/1>;
       is $item1->{data}->{title}, q<Feed Entry 2>;
-      is $item1->{data}->{desc_text}, undef;
+      #XXX
+      is $item1->{data}->{desc_text}, 'This is Feed Entry 2';
+      #is $item1->{data}->{desc_text}, undef;
     } $c;
   })->then (sub { done $c; undef $c });
 } wait => $wait, n => 12, name => 'channel mapped';
@@ -746,20 +736,14 @@ test {
     return create_process ($c, $source => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
-      {name => 'rss_desc_text'},
+      {name => 'set_key', field => 'url'},
     ] => $stream);
   })->then (sub {
     $process = $_[0];
     return create_process ($c, $source2 => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
-      {name => 'rss_desc_text'},
+      {name => 'set_key', field => 'url'},
     ] => $stream2);
   })->then (sub {
     $process2 = $_[0];
@@ -888,10 +872,7 @@ test {
     return create_process ($c, $source => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
-      {name => 'rss_desc_text'},
+      {name => 'set_key', field => 'url'},
       {name => 'fetch_item_url'},
     ] => $stream);
   })->then (sub {
@@ -899,10 +880,7 @@ test {
     return create_process ($c, $source2 => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
-      {name => 'rss_desc_text'},
+      {name => 'set_key', field => 'url'},
     ] => $stream2);
   })->then (sub {
     $process2 = $_[0];
@@ -1023,10 +1001,7 @@ test {
     return create_process ($c, $source => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
-      {name => 'rss_desc_text'},
+      {name => 'set_key', field => 'url'},
       {name => 'fetch_item_url'},
     ] => $stream);
   })->then (sub {
@@ -1034,10 +1009,7 @@ test {
     return create_process ($c, {origin => origin_of $urls->{b}} => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
-      {name => 'rss_desc_text'},
+      {name => 'set_key', field => 'url'},
     ] => $stream2);
   })->then (sub {
     $process2 = $_[0];
@@ -1206,9 +1178,7 @@ test {
     return create_process ($c, $source => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream);
   })->then (sub {
     $process = $_[0];
@@ -1325,9 +1295,7 @@ test {
     return create_process ($c, $source => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream);
   })->then (sub {
     $process = $_[0];
@@ -1467,9 +1435,7 @@ test {
     return create_process ($c, $source => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream);
   })->then (sub {
     $process = $_[0];
@@ -1481,9 +1447,7 @@ test {
     return create_process ($c, $source2 => [
       {name => 'httpres_to_doc'},
       {name => 'parse_rss'},
-      {name => 'rss_basic'},
-      {name => 'use_url_as_key'},
-      {name => 'dc_date_as_timestamp'},
+      {name => 'set_key', field => 'url'},
     ] => $stream3);
   })->then (sub {
     $process3 = $_[0];
