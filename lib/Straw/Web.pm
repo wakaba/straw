@@ -110,6 +110,20 @@ sub main ($$$) {
   my ($class, $app, $db) = @_;
   my $path = $app->path_segments;
 
+
+  if ($path->[0] eq 'get') {
+    http_get
+        url => $Config->{ikachan_prefix},
+        anyevent => 1,
+        cb => sub {
+          $app->http->set_response_header ('Content-Type' => 'text/plain; charset=utf-8');
+          $app->http->send_response_body_as_ref (\($_[1]->as_string));
+          $app->http->close_response_body;
+        };
+    return;
+  }
+
+
   if (@$path >= 2 and
       $path->[0] eq 'source' and $path->[1] =~ /\A[0-9]+\z/) {
     if (@$path == 2) {
