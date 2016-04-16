@@ -112,6 +112,8 @@ sub main ($$$) {
   my $path = $app->path_segments;
 
   if ($path->[0] eq 'get') {
+    return Promise->new (sub {
+      my $ok = $_[0];
     http_get
         url => $Config->{ikachan_prefix},
         anyevent => 1,
@@ -121,8 +123,9 @@ sub main ($$$) {
           $app->http->send_response_body_as_ref (\"\n");
           $app->http->send_response_body_as_ref (\($_[1]->as_string));
           $app->http->close_response_body;
+          $ok->();
         };
-    return;
+    });
   }
 
 
