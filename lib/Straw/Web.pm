@@ -74,6 +74,15 @@ sub psgi_app ($) {
     warn sprintf "Access: [%s] %s %s\n",
         scalar gmtime, $app->http->request_method, $app->http->url->stringify;
 
+        http_post
+            url => $Config->{ikachan_prefix} . '/privmsg',
+            params => {
+              channel => $Config->{ikachan_channel},
+              message => (sprintf "%s %s", __PACKAGE__, $app->http->url->stringify),
+              #rules => $rules,
+            },
+            anyevent => 1;
+
     my $db = Dongry::Database->new (sources => $DBSources);
 
     return $app->execute_by_promise (sub {
