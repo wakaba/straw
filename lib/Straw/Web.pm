@@ -35,6 +35,7 @@ my $Signals = {};
 sub psgi_app ($) {
   my ($class) = @_;
 
+  if (0)
   {
     $Worker = Straw::Worker->new_from_db_sources ($DBSources);
     $Worker->run ('fetch');
