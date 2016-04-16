@@ -8,7 +8,7 @@ use Promised::Command::Signals;
 use JSON::PS;
 use Wanage::HTTP;
 use Warabe::App;
-use Web::UserAgent::Functions qw(http_post);
+use Web::UserAgent::Functions qw(http_post http_get);
 use Dongry::Database;
 use Dongry::Type;
 use Dongry::Type::JSONPS;
@@ -109,7 +109,6 @@ sub psgi_app ($) {
 sub main ($$$) {
   my ($class, $app, $db) = @_;
   my $path = $app->path_segments;
-
 
   if ($path->[0] eq 'get') {
     http_get
