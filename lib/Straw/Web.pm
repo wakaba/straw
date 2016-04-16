@@ -8,7 +8,7 @@ use Promised::Command::Signals;
 use JSON::PS;
 use Wanage::HTTP;
 use Warabe::App;
-use Web::UserAgent::Functions qw(http_post http_get);
+use Web::UserAgent::Functions qw(http_post);
 use Dongry::Database;
 use Dongry::Type;
 use Dongry::Type::JSONPS;
@@ -35,7 +35,6 @@ my $Signals = {};
 sub psgi_app ($) {
   my ($class) = @_;
 
-  if (not $ENV{HEROKU_APP_DEBUG})
   {
     $Worker = Straw::Worker->new_from_db_sources ($DBSources);
     $Worker->run ('fetch');
@@ -75,15 +74,6 @@ sub psgi_app ($) {
     warn sprintf "Access: [%s] %s %s\n",
         scalar gmtime, $app->http->request_method, $app->http->url->stringify;
 
-        http_post
-            url => $Config->{ikachan_prefix} . '/privmsg',
-            params => {
-              channel => $Config->{ikachan_channel},
-              message => (sprintf "%s %s", __PACKAGE__, $app->http->url->stringify),
-              #rules => $rules,
-            },
-            anyevent => 1;
-
     my $db = Dongry::Database->new (sources => $DBSources);
 
     return $app->execute_by_promise (sub {
@@ -110,24 +100,6 @@ sub psgi_app ($) {
 sub main ($$$) {
   my ($class, $app, $db) = @_;
   my $path = $app->path_segments;
-
-  if ($path->[0] eq 'get') {
-    return Promise->new (sub {
-      my $ok = $_[0];
-    http_get
-        url => $Config->{ikachan_prefix},
-        anyevent => 1,
-        cb => sub {
-          $app->http->set_response_header ('Content-Type' => 'text/plain; charset=utf-8');
-          $app->http->send_response_body_as_ref (\($Config->{ikachan_prefix}));
-          $app->http->send_response_body_as_ref (\"\n");
-          $app->http->send_response_body_as_ref (\($_[1]->as_string));
-          $app->http->close_response_body;
-          $ok->();
-        };
-    });
-  }
-
 
   if (@$path >= 2 and
       $path->[0] eq 'source' and $path->[1] =~ /\A[0-9]+\z/) {
