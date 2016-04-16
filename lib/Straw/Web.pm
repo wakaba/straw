@@ -116,6 +116,8 @@ sub main ($$$) {
         anyevent => 1,
         cb => sub {
           $app->http->set_response_header ('Content-Type' => 'text/plain; charset=utf-8');
+          $app->http->send_response_body_as_ref (\($Config->{ikachan_prefix}));
+          $app->http->send_response_body_as_ref (\"\n");
           $app->http->send_response_body_as_ref (\($_[1]->as_string));
           $app->http->close_response_body;
         };
