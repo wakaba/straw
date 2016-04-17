@@ -5,6 +5,7 @@ use Straw::Web;
 
 $ENV{LANG} = 'C';
 $ENV{TZ} = 'UTC';
+$Wanage::HTTP::UseXForwardedScheme = 1 if $ENV{APP_WITH_RPROXY};
 
 return Straw::Web->psgi_app;
 
