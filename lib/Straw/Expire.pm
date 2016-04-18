@@ -16,7 +16,7 @@ my $ExpirationWorkerSleep = 10*60;
 my $FetchTimeout = 60*5;
 my $ProcessTimeout = 60*60;
 my $ErrorLogTimeout = 60*60;
-my $StreamItemTimeout = 60*60*10;
+my $StreamItemTimeout = 60*60*24*10;
 
 sub run_task ($) {
   my $self = $_[0];
