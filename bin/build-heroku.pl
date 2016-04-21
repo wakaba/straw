@@ -8,7 +8,11 @@ use JSON::PS;
 my $root_path = path (__FILE__)->parent->parent;
 
 my $cert_path = $root_path->child ('local/cleardb.pem')->absolute;
-$cert_path->spew ($ENV{CLEARDB_CERT});
+if ($ENV{CLEARDB_CERT_URL}) {
+  (system "curl", "-o", $cert_path, $ENV{CLEARDB_CERT_URL}) == 0 or die $?;
+} else {
+  $cert_path->spew ($ENV{CLEARDB_CERT});
+}
 
 $ENV{CLEARDB_DATABASE_URL} =~ m{^mysql://([^#?/\@:]*):([^#?/\@]*)\@([^#?/:]+)/([^#?]+)\?}
     or die "Bad |CLEARDB_DATABASE_URL| ($ENV{CLEARDB_DATABASE_URL})";
