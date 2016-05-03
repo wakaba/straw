@@ -18,6 +18,7 @@ deployment:
       - "[[ ! -s \"$(git rev-parse --git-dir)/shallow\" ]] || git fetch --unshallow"
       - make create-commit-for-heroku
       - git push git@heroku.com:$HEROKU_APP_NAME.git +`git rev-parse HEAD`:refs/heads/master
+      - git push git@heroku.com:$HEROKU_APP2_NAME.git +`git rev-parse HEAD`:refs/heads/master
 
   nightly:
     branch: nightly
