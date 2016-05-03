@@ -97,6 +97,14 @@ $Straw::Step->{parse_rss} = {
           }
         }
 
+        if (defined $v->{content}) {
+          if (UNIVERSAL::can ($v->{content}, 'text_content')) {
+            $v->{content_text} = (delete $v->{content})->text_content;
+          } else {
+            $v->{content_text} = delete $v->{content};
+          }
+        }
+
         if (defined $v->{updated} and
             UNIVERSAL::can ($v->{updated}, 'to_unix_number')) {
           $v->{timestamp} = $v->{updated}->to_unix_number;
