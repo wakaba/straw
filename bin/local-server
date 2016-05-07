@@ -48,6 +48,7 @@ $mysqld->start->then (sub {
     $config_file->write_byte_string (perl2json_bytes {
       alt_dsns => {master => {straw => $dsn}},
       dsns => {straw => $dsn},
+      api_key => 'local',
     }),
   ]);
 })->then (sub {

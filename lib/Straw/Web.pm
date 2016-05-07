@@ -77,6 +77,8 @@ sub psgi_app ($) {
     my $db = Dongry::Database->new (sources => $DBSources);
 
     return $app->execute_by_promise (sub {
+      $app->requires_basic_auth ({key => $Config->{api_key}});
+
       return Promise->resolve->then (sub {
         return $class->main ($app, $db);
       })->then (sub {
