@@ -24,6 +24,7 @@ my $Config = {
   ikachan_channel => $ENV{IKACHAN_CHANNEL},
   alt_dsns => {master => {straw => $dsn}},
   dsns => {straw => $dsn},
+  api_key => $ENV{APP_API_KEY},
 };
 
 my $config_path = $root_path->child ('local/config.json');
