@@ -304,7 +304,7 @@
           fd.append ('type', 'fetch_source');
           fd.append ('fetch_options', '{}');
           fd.append ('schedule_options', '{}');
-          fetch ('/source', {method: "POST", body: fd}).then (function (res) {
+          fetch ('/source', {method: "POST", body: fd, credentials: 'include'}).then (function (res) {
             return res.json ();
           }).then (function (json) {
             insertItem (json.source_id);
@@ -341,7 +341,7 @@
           v.value = '';
         };
         newItem.querySelector ('button').onclick = function () {
-          fetch ('/stream', {method: "POST"}).then (function (res) {
+          fetch ('/stream', {method: "POST", credentials: 'include'}).then (function (res) {
             return res.json ();
           }).then (function (json) {
             insertItem (json.stream_id);
@@ -388,7 +388,7 @@
     progress.hidden = false;
 
     var url = '/source/' + encodeURIComponent (sourceId);
-    fetch (url).then (function (res) {
+    fetch (url, {credentials: 'include'}).then (function (res) {
       return res.json ();
     }).then (function (json) {
       section.stData = json;
@@ -430,12 +430,12 @@
       });
       $$ (section, '.enqueue-button').forEach (function (el) {
         el.onclick = function () {
-          fetch ('/source/' + encodeURIComponent (sourceId) + '/enqueue', {method: "POST"});
+          fetch ('/source/' + encodeURIComponent (sourceId) + '/enqueue', {method: "POST", credentials: 'include'});
         };
       });
       $$ (section, '.enqueue-nofetch-button').forEach (function (el) {
         el.onclick = function () {
-          fetch ('/source/' + encodeURIComponent (sourceId) + '/enqueue?skip_fetch=1', {method: "POST"});
+          fetch ('/source/' + encodeURIComponent (sourceId) + '/enqueue?skip_fetch=1', {method: "POST", credentials: 'include'});
         };
       });
 
@@ -446,7 +446,7 @@
           var fd = new FormData;
           fd.append ('fetch_options', JSON.stringify (json.fetch.fetch_options));
           fd.append ('schedule_options', JSON.stringify (json.fetch.schedule_options));
-          fetch (url, {method: "POST", body: fd}).then (function () {
+          fetch (url, {method: "POST", body: fd, credentials: 'include'}).then (function () {
             progress.hidden = true;
             if (!section.stModified) section.classList.remove ('modified');
           }, function (error) {
@@ -490,7 +490,7 @@
     tabs.appendChild (section);
 
     var loadSourceList = function () {
-      return fetch ('/fetch/' + encodeURIComponent (fetchKey) + '/sources').then (function (res) {
+      return fetch ('/fetch/' + encodeURIComponent (fetchKey) + '/sources', {credentials: 'include'}).then (function (res) {
         return res.json ();
       }).then (function (json) {
         $$ (section, '.source-list').forEach (function (list) {
@@ -535,7 +535,7 @@
     progress.hidden = false;
 
     var loadSinkList = function () {
-      return fetch ('/stream/' + encodeURIComponent (streamId) + '/sinks').then (function (res) {
+      return fetch ('/stream/' + encodeURIComponent (streamId) + '/sinks', {credentials: 'include'}).then (function (res) {
         return res.json ();
       }).then (function (json) {
         $$ (section, '.sink-list').forEach (function (list) {
@@ -549,7 +549,7 @@
       });
     }; // loadSinkList
 
-    fetch ('/stream/' + encodeURIComponent (streamId)).then (function (res) {
+    fetch ('/stream/' + encodeURIComponent (streamId), {credentials: 'include'}).then (function (res) {
       return res.json ();
     }).then (function (json) {
       $$ (section, '.reload-sinks-button').forEach (function (el) {
@@ -559,7 +559,7 @@
         el.onclick = function () {
           var fd = new FormData;
           fd.append ('stream_id', json.stream_id);
-          fetch ('/sink', {method: "POST", body: fd}).then (function (res) {
+          fetch ('/sink', {method: "POST", body: fd, credentials: 'include'}).then (function (res) {
             return res.json ();
           }).then (function (json) {
             return loadSinkList ();
@@ -603,7 +603,7 @@
     progress.hidden = false;
 
     var url = '/process/' + encodeURIComponent (processId);
-    fetch (url).then (function (res) {
+    fetch (url, {credentials: 'include'}).then (function (res) {
       return res.json ();
     }).then (function (json) {
       var inputSourceIds = json.process_options.input_source_ids;
@@ -654,7 +654,7 @@
           var output = section.querySelector ('.item-list[data-name=output_ids]').stGetValues ();
           json.process_options.output_stream_id = output.streamIds[0];
           fd.append ('process_options', JSON.stringify (json.process_options));
-          fetch (url, {method: "POST", body: fd}).then (function () {
+          fetch (url, {method: "POST", body: fd, credentials: 'include'}).then (function () {
             progress.hidden = true;
             if (!section.stModified) section.classList.remove ('modified');
           }, function (error) {
@@ -704,7 +704,7 @@
     progress.hidden = false;
 
     var url = '/sink/' + encodeURIComponent (sinkId);
-    fetch (url).then (function (res) {
+    fetch (url, {credentials: 'include'}).then (function (res) {
       return res.json ();
     }).then (function (json) {
       $$ (section, 'input[name=stream_id]').forEach (function (input) {
@@ -726,7 +726,7 @@
           var fd = new FormData;
           fd.append ('stream_id', section.querySelector ('input[name=stream_id]').value);
           fd.append ('channel_id', section.querySelector ('input[name=channel_id]').value);
-          fetch (url, {method: "POST", body: fd}).then (function () {
+          fetch (url, {method: "POST", body: fd, credentials: 'include'}).then (function () {
             progress.hidden = true;
             if (!section.stModified) section.classList.remove ('modified');
           }, function (error) {
@@ -763,7 +763,7 @@
   } // subscribe
 
   function _subscribeURL (url, onitem) {
-    return fetch (url).then (function (res) {
+    return fetch (url, {credentials: 'include'}).then (function (res) {
       return res.json ();
     }).then (function (json) {
       var nextURL = json.next_url || url;
@@ -784,7 +784,7 @@
 <p><button type=button onclick="
   var fd = new FormData;
   fd.append ('process_options', JSON.stringify ({}));
-  fetch ('/process', {method: 'POST', body: fd}).then (function (res) {
+  fetch ('/process', {method: 'POST', body: fd, credentials: 'include'}).then (function (res) {
     return res.json ();
   }).then (function (json) {
     loadProcess (json.process_id);
