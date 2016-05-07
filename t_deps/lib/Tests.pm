@@ -134,6 +134,7 @@ sub web_server (;$) {
       $temp_file->write_byte_string (perl2json_bytes +{
         alt_dsns => {master => {straw => $dsn}},
         dsns => {straw => $dsn},
+        api_key => 'test',
       }),
     ]);
   })->then (sub {
@@ -168,6 +169,7 @@ sub GET ($$) {
     my ($ok, $ng) = @_;
     http_get
         url => qq{http://$host$url},
+        basic_auth => [key => 'test'],
         timeout => 60,
         anyevent => 1,
         cb => sub {
@@ -185,6 +187,7 @@ sub POST ($$$) {
     my ($ok, $ng) = @_;
     http_post
         url => qq{http://$host$url},
+        basic_auth => [key => 'test'],
         params => $params,
         timeout => 60,
         anyevent => 1,
