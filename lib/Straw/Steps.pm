@@ -214,6 +214,14 @@ $Straw::ItemStep->{set_key} = sub {
   return $item;
 }; # set_key
 
+$Straw::ItemStep->{set_timestamp} = sub {
+  my ($self, $step, $item, $result) = @_;
+  my $key = $step->{field} // die "No |field| specified for the step";
+  my $v = $item->{0}->{props}->{$key};
+  $item->{0}->{props}->{timestamp} = 0+$v if defined $v and length $v;
+  return $item;
+}; # set_timestamp
+
 $Straw::ItemStep->{select_props} = sub {
   my ($self, $step, $item, $result) = @_;
   my $out = {};
