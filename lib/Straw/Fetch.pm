@@ -201,6 +201,7 @@ sub fetch ($$$$) {
       # XXX redirect
       http_get
           url => $url,
+          header_fields => $options->{headers},
           anyevent => 1,
           timeout => $HTTPTimeout,
           cb => sub {

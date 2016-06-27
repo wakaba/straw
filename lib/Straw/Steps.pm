@@ -316,42 +316,39 @@ $Straw::ItemStep->{cleanup_title} = sub {
   return $item;
 }; # cleanup_title
 
+sub _get_from_object_by_path ($$) {
+  my ($v, $path) = @_;
+  die "Bad path |$path|" unless $path =~ m{^/};
+  my @path = split m{/}, $path, -1;
+  shift @path;
+  if (@path and not (@path == 1 and $path[0] eq '')) {
+    my $last = pop @path;
+    my @current;
+    while (@path) {
+      my $p = shift @path;
+      if (defined $v and ref $v eq 'HASH') {
+        push @current, $p;
+        $v = $v->{$p};
+      } else {
+        die "|@current| is not an object";
+      }
+    }
+    return $v->{$last};
+  } else {
+    return $v;
+  }
+} # _get_from_object_by_path
+
 $Straw::Step->{extract_array_items} = {
   in_type => 'Object',
   code => sub {
     my $step = $_[1];
     my $in = $_[2];
-    my $path = $step->{path} // '';
-    die "Bad path |$path|" unless $path =~ m{^/};
-    my @path = split m{/}, $path, -1;
-    shift @path;
-    my $list;
-    my $v = $in->{object};
-    if (@path) {
-      my $last = pop @path;
-      my @current;
-      while (@path) {
-        my $p = shift @path;
-        push @current, $p;
-        if (defined $v and ref $v eq 'HASH') {
-          $v = $v->{$p};
-        } else {
-          die "|@current| is not an object";
-        }
-      }
-      if (defined $v->{$last} and ref $v->{$last} eq 'ARRAY') {
-        $list = $v->{$last};
-      } else {
-        push @current, $last;
-        die "|@current| is not an array";
-      }
-    } else {
-      if (defined $v and ref $v eq 'ARRAY') {
-        $list = $v;
-      } else {
-        die "|/| is not an array";
-      }
-    }
+
+    die "There is no object" unless defined $in->{object};
+    my $list = _get_from_object_by_path $in->{object}, $step->{path};
+    die "|$in->{path}| is not an array"
+        unless defined $list and ref $list eq 'ARRAY';
     
     my $out = {type => 'Stream', props => {}, items => []};
     push @{$out->{items}}, map { +{0 => {props => $_}} } @$list;
@@ -359,6 +356,15 @@ $Straw::Step->{extract_array_items} = {
     return $out;
   },
 }; # extract_array_items
+
+$Straw::ItemStep->{set_text_prop_by_path} = sub {
+  my ($self, $step, $item, $result) = @_;
+
+  my $v = _get_from_object_by_path $item->{0}->{props}, $step->{path};
+  $item->{0}->{props}->{$step->{field}} = $v if defined $v;
+
+  return $item;
+}; # set_text_prop_by_path
 
 1;
 

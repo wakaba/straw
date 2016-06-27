@@ -103,6 +103,22 @@
     <h1>Fetch</h1>
     <p><label>URL: <input type=url name=fetch_options_url required></label>
     <p><label>Every <input type=number name=schedule_options_every_seconds min=60 step=1> seconds</label>
+    <p>Headers:
+      <table>
+        <tbody>
+          <tr>
+            <th><code>Origin:</code>
+            <td><input name=fetch_options_header.Origin value>
+          <tr>
+            <th><code>Referer:</code>
+            <td><input name=fetch_options_header.Referer value>
+          <tr>
+            <th><code>X-Request-With:</code>
+            <td><input name=fetch_options_header.X-Request-With value>
+          <tr>
+            <th><code>User-Agent:</code>
+            <td><input name=fetch_options_header.User-Agent value>
+      </table>
     <p>Fetch key: <a href class=fetch-link><code class=fetch_key></code></a>
   </section>
 
@@ -407,6 +423,21 @@
             section.stData.fetch.fetch_options.url = this.value;
           } else {
             delete section.stData.fetch.fetch_options.url;
+          }
+          section.stModified = true;
+          section.classList.add ('modified');
+          updateTabs ();
+        };
+      });
+      $$ (section, 'input[name^="fetch_options_header."]').forEach (function (el) {
+        var headerName = el.name.split (/\./, 2)[1];
+        section.stData.fetch.fetch_options.headers = section.stData.fetch.fetch_options.headers || {};
+        el.value = json.fetch.fetch_options.headers[headerName] || '';
+        el.onchange = function () {
+          if (this.value.length) {
+            section.stData.fetch.fetch_options.headers[headerName] = this.value;
+          } else {
+            delete section.stData.fetch.fetch_options.headers[headerName];
           }
           section.stModified = true;
           section.classList.add ('modified');
