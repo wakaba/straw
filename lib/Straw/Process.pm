@@ -153,7 +153,9 @@ sub _load ($$) {
           unless defined $_[0];
       require HTTP::Response;
       return {type => 'HTTP::Response',
-              res => HTTP::Response->parse ($_[0])};
+              res => HTTP::Response->parse ($_[0]->[1]),
+              url => $_[0]->[0]->{url}, # XXX if url is computed...
+             };
     });
   } elsif (defined $current->{process_args}->{stream_id}) {
     my $src_stream_id = $current->{process_args}->{stream_id};

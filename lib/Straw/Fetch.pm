@@ -275,10 +275,10 @@ sub load_fetch_result ($$) {
   my ($self, $fetch_key) = @_;
   return $self->db->select ('fetch_result', {
     fetch_key => Dongry::Type->serialize ('text', $fetch_key),
-  }, fields => ['result'])->then (sub {
+  }, fields => ['fetch_options', 'result'])->then (sub {
     my $d = $_[0]->first;
     return undef unless defined $d;
-    return $d->{result};
+    return [(json_bytes2perl $d->{fetch_options}), $d->{result}];
   });
 } # load_fetch_result
 

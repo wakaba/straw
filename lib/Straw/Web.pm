@@ -184,7 +184,7 @@ sub main ($$$) {
               ('Content-Disposition' => 'attachment');
           $app->http->set_response_header
               ('Content-Security-Policy' => 'sandbox');
-          $app->http->send_response_body_as_ref (\($_[0]));
+          $app->http->send_response_body_as_ref (\($_[0]->[1]));
           return $app->http->close_response_body;
         });
       });

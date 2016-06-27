@@ -149,19 +149,34 @@ $Straw::Step->{extract_elements} = {
 $Straw::ItemStep->{set_text_prop_from_element} = sub {
   my ($self, $step, $item, $result) = @_;
   die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
-  my $el = $item->{0}->{element}->query_selector ($step->{path});
+  my $el = $item->{0}->{element};
+  $el = $el->query_selector ($step->{path})
+      if defined $step->{path} and length $step->{path};
   return $item unless defined $el;
-  $item->{0}->{props}->{$step->{field}} = $el->text_content;
+  if (defined $step->{attr} and length $step->{attr}) {
+    $item->{0}->{props}->{$step->{field}} = $el->get_attribute ($step->{attr});
+  } else {
+    $item->{0}->{props}->{$step->{field}} = $el->text_content;
+  }
   return $item;
 }; # set_text_prop_from_element
 
 $Straw::ItemStep->{set_url_prop_from_element} = sub {
   my ($self, $step, $item, $result) = @_;
   die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
-  my $el = $item->{0}->{element}->query_selector ($step->{path});
+  my $el = $item->{0}->{element};
+  $el = $el->query_selector ($step->{path})
+      if defined $step->{path} and length $step->{path};
   return $item unless defined $el;
   my $url;
-  $url = $el->href if $el->can ('href');
+  if (defined $step->{attr} and length $step->{attr}) {
+    my $x = $el->owner_document->create_element_ns ('http://www.w3.org/1999/xhtml', 'a');
+    $x->href ($el->get_attribute ($step->{attr}));
+    $url = $x->href;
+  } else {
+    $url = $el->href if $el->can ('href');
+    $url = $el->src if not (defined $url and length $url) and $el->can ('src');
+  }
   $item->{0}->{props}->{$step->{field}} = $url if defined $url and length $url;
   return $item;
 }; # set_url_prop_from_element
@@ -169,11 +184,17 @@ $Straw::ItemStep->{set_url_prop_from_element} = sub {
 $Straw::ItemStep->{set_time_prop_from_element} = sub {
   my ($self, $step, $item, $result) = @_;
   die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
-  my $el = $item->{0}->{element}->query_selector ($step->{path});
+  my $el = $item->{0}->{element};
+  $el = $el->query_selector ($step->{path})
+      if defined $step->{path} and length $step->{path};
   return $item unless defined $el;
   my $time;
-  $time = $el->datetime if $el->can ('datetime');
-  $time = $el->text_content if not defined $time or not length $time;
+  if (defined $step->{attr} and length $step->{attr}) {
+    $time = $el->get_attribute ($step->{attr});
+  } else {
+    $time = $el->datetime if $el->can ('datetime');
+    $time = $el->text_content if not defined $time or not length $time;
+  }
   if (defined $time and length $time) {
     my $parser = Web::DateTime::Parser->new;
     my $dt = $parser->parse_html_datetime_value ($time);
@@ -213,6 +234,14 @@ $Straw::ItemStep->{set_key} = sub {
   $item->{0}->{props}->{key} = $v if defined $v and length $v;
   return $item;
 }; # set_key
+
+$Straw::ItemStep->{set_key_by_template} = sub {
+  my ($self, $step, $item, $result) = @_;
+  my $v = $step->{template} // die "No |template| specified for the step";
+  $v =~ s{\{([A-Za-z0-9_]+)\}}{$item->{0}->{props}->{$1} // ''}ge;
+  $item->{0}->{props}->{key} = $v if length $v;
+  return $item;
+}; # set_key_by_template
 
 $Straw::ItemStep->{set_timestamp} = sub {
   my ($self, $step, $item, $result) = @_;
