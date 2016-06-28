@@ -376,6 +376,7 @@ sub run_task ($) {
         return $self->error
             (process_id => $process_id,
              process_options => $process_options,
+             process_args => $args,
              message => 'No error');
       }, sub {
         if (ref $_[0] eq 'HASH') {
@@ -384,6 +385,7 @@ sub run_task ($) {
           return $self->error
               (process_id => $process_id,
                process_options => $process_options,
+               process_args => $args,
                message => ''.$_[0]);
         }
       });
@@ -407,6 +409,8 @@ sub error ($%) {
   my $error = {message => $args{message}};
   $error->{process_options} = $args{process_options}
       if defined $args{process_options};
+  $error->{process_args} = $args{process_args}
+      if defined $args{process_args};
   $error->{step} = $args{step} if defined $args{step};
   return $self->db->insert ('process_error', [{
     process_id => Dongry::Type->serialize ('text', $args{process_id}),
