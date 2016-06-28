@@ -176,7 +176,7 @@ sub _load ($$) {
         stream_id => Dongry::Type->serialize ('text', $src_stream_id),
         updated => {'>', $ref},
       }, fields => ['data', 'channel_id', 'item_key', 'updated'],
-          order => ['updated', 'ASC'], limit => 10);
+          order => ['updated', 'ASC'], limit => 50);
     })->then (sub {
       my $item_by_key = {};
       my @item_key;
