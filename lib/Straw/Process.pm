@@ -278,7 +278,7 @@ sub _save ($$$) {
     map {
       my $d = $item->{$_};
       if (keys %{$d->{props}}) {
-        $updated += 0.0001;
+        $updated += 0.001;
         my $x = {
           stream_id => Dongry::Type->serialize ('text', $stream_id),
           channel_id => $_,
