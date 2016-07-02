@@ -156,7 +156,14 @@ $Straw::ItemStep->{set_text_prop_from_element} = sub {
   if (defined $step->{attr} and length $step->{attr}) {
     $item->{0}->{props}->{$step->{field}} = $el->get_attribute ($step->{attr});
   } else {
-    $item->{0}->{props}->{$step->{field}} = $el->text_content;
+    my $tree = $el->clone_node (1);
+    for ($tree->query_selector_all ('style, script')->to_list) {
+      $_->parent_node->remove_child ($_);
+    }
+    for ($tree->query_selector_all ('br')->to_list) {
+      $_->parent_node->replace_child ($_->owner_document->create_text_node ("\x0A"), $_);
+    }
+    $item->{0}->{props}->{$step->{field}} = $tree->text_content;
   }
   return $item;
 }; # set_text_prop_from_element
