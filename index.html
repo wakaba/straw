@@ -119,6 +119,9 @@
             <th><code>User-Agent:</code>
             <td><input name=fetch_options_header.User-Agent value>
       </table>
+    <p><label>Method: <input name=fetch_options_method></label>
+    <p><label>Cookie preflight URL: <input type=url name=fetch_options_cookie_preflight_url></label>
+
     <p>Fetch key: <a href class=fetch-link><code class=fetch_key></code></a>
   </section>
 
@@ -423,6 +426,32 @@
             section.stData.fetch.fetch_options.url = this.value;
           } else {
             delete section.stData.fetch.fetch_options.url;
+          }
+          section.stModified = true;
+          section.classList.add ('modified');
+          updateTabs ();
+        };
+      });
+      $$ (section, 'input[name=fetch_options_cookie_preflight_url]').forEach (function (el) {
+        el.value = json.fetch.fetch_options.cookie_preflight_url || '';
+        el.onchange = function () {
+          if (this.value.length) {
+            section.stData.fetch.fetch_options.cookie_preflight_url = this.value;
+          } else {
+            delete section.stData.fetch.fetch_options.cookie_preflight_url;
+          }
+          section.stModified = true;
+          section.classList.add ('modified');
+          updateTabs ();
+        };
+      });
+      $$ (section, 'input[name=fetch_options_method]').forEach (function (el) {
+        el.value = json.fetch.fetch_options.method || '';
+        el.onchange = function () {
+          if (this.value.length) {
+            section.stData.fetch.fetch_options.method = this.value;
+          } else {
+            delete section.stData.fetch.fetch_options.method;
           }
           section.stModified = true;
           section.classList.add ('modified');

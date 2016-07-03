@@ -7,7 +7,7 @@ use JSON::PS;
 use Dongry::Type;
 use Dongry::Type::JSONPS;
 use Promise;
-use Web::UserAgent::Functions qw(http_get);
+use Web::UserAgent::Functions qw(http_get http_post);
 use Wanage::URL;
 use Straw::Process;
 
@@ -195,23 +195,68 @@ sub fetch ($$$$) {
   my ($self, $fetch_key, $options, $result) = @_;
   # XXX skip if fetch_result is too new and not superreload
   my ($url, $origin_key) = $self->_prepare_fetch ($options);
+  my $headers = {%{$options->{headers} or {}}};
+  $headers->{'User-Agent'} = 'Mozilla/5.0' unless defined $headers->{'User-Agent'};
   return Promise->resolve->then (sub {
+    if (defined $options->{cookie_preflight_url}) {
+      return Promise->new (sub {
+        my ($ok, $ng) = @_;
+        http_get
+            url => $options->{cookie_preflight_url},
+            header_fields => {'User-Agent' => $headers->{'User-Agent'}},
+            anyevent => 1,
+            timeout => $HTTPTimeout,
+            cb => sub {
+              if ($_[1]->code >= 590) { # network error
+                $ng->($_[1]);
+              } else {
+                # XXX cookie parsing
+                my $cookies = $_[1]->header ('Set-Cookie') || '';
+                $cookies = [map { s/;.*$//; $_ } split /,/, $cookies];
+                $ok->(join '; ', @$cookies);
+                # XXX 4xx, 5xx
+              }
+            };
+      });
+    }
+    return undef;
+  })->then (sub {
+    $headers->{'Cookie'} = join '; ', grep { defined $_ }
+        $headers->{'Cookie'}, $_[0] if defined $_[0];
     return Promise->new (sub {
       my ($ok, $ng) = @_;
       # XXX redirect
-      http_get
-          url => $url,
-          header_fields => $options->{headers},
-          anyevent => 1,
-          timeout => $HTTPTimeout,
-          cb => sub {
-            if ($_[1]->code >= 590) { # network error
-              $ng->($_[1]);
-            } else {
-              $ok->($_[1]);
-              # XXX 4xx, 5xx
-            }
-          };
+      my $method = $options->{method} || '';
+      if ($method eq 'POST') {
+        http_post
+            url => $url,
+            header_fields => $headers,
+            params => $options->{params},
+            anyevent => 1,
+            timeout => $HTTPTimeout,
+            cb => sub {
+              if ($_[1]->code >= 590) { # network error
+                $ng->($_[1]);
+              } else {
+                $ok->($_[1]);
+                # XXX 4xx, 5xx
+              }
+            };
+      } else {
+        http_get
+            url => $url,
+            header_fields => $headers,
+            anyevent => 1,
+            timeout => $HTTPTimeout,
+            cb => sub {
+              if ($_[1]->code >= 590) { # network error
+                $ng->($_[1]);
+              } else {
+                $ok->($_[1]);
+                # XXX 4xx, 5xx
+              }
+            };
+      }
     })->then (sub {
       my $db = $self->db;
       return $db->insert ('fetch_result', [{
