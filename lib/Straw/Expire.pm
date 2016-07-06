@@ -23,11 +23,11 @@ sub run_task ($) {
   my $db = $self->db;
   my $now = time;
   return Promise->resolve->then (sub {
-    return $db->delete ('process_task', {
+    return $db->update ('process_task', {running_since => 0}, where => {
       running_since => {'<', $now - $ProcessTimeout, '!=' => 0},
     });
   })->then (sub {
-    return $db->delete ('fetch_task', {
+    return $db->update ('fetch_task', {running_since => 0}, where => {
       running_since => {'<', $now - $FetchTimeout, '!=' => 0},
     });
   })->then (sub {
