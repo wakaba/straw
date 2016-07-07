@@ -2,6 +2,7 @@ package Straw::Web;
 use strict;
 use warnings;
 use Path::Tiny;
+use AnyEvent;
 use Promise;
 use Promised::File;
 use Promised::Command::Signals;
@@ -41,20 +42,29 @@ sub psgi_app ($) {
     $Worker->run ('process');
     $Worker->run ('expire');
 
+    my $interval = AE::timer 5, 60, sub {
+      $Worker->run ('fetch');
+      $Worker->run ('process');
+      $Worker->run ('expire');
+    };
+
     $Signals->{TERM} = Promised::Command::Signals->add_handler (TERM => sub {
       $Worker->terminate;
       undef $Worker;
       %$Signals = ();
+      undef $interval;
     });
     $Signals->{INT} = Promised::Command::Signals->add_handler (INT => sub {
       $Worker->terminate;
       undef $Worker;
       %$Signals = ();
+      undef $interval;
     });
     $Signals->{QUIT} = Promised::Command::Signals->add_handler (QUIT => sub {
       $Worker->terminate;
       undef $Worker;
       %$Signals = ();
+      undef $interval;
     });
   }
 
