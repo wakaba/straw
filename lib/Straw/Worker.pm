@@ -3,6 +3,7 @@ use strict;
 use warnings;
 use AnyEvent;
 use Promise;
+use Web::UserAgent::Functions qw(http_post);
 use Dongry::Database;
 use Straw::Fetch;
 use Straw::Process;
@@ -10,12 +11,13 @@ use Straw::Expire;
 
 my $DEBUG = $ENV{WORKER_DEBUG};
 
-sub new_from_db_sources ($$) {
+sub new_from_db_sources_and_config ($$$) {
   return bless {db_sources => $_[1],
+                config => $_[2],
                 worker_count => {fetch => 0,
                                  process => 0,
                                  all => 0}}, $_[0];
-} # new_from_db
+} # new_from_db_and_config
 
 sub db ($) {
   my $self = $_[0];
@@ -109,8 +111,18 @@ sub run ($$) {
       return $r->() if $more->{continue};
     });
   }; # $r
-  return Promise->resolve ($r->())->catch (sub {
-    warn $_[0]; # XXX
+  return Promise->resolve->then (sub {
+    return $r->();
+  })->catch (sub {
+    warn $_[0];
+    http_post
+        url => $self->{config}->{ikachan_prefix} . '/privmsg',
+        params => {
+          channel => $self->{config}->{ikachan_channel},
+          message => (sprintf "%s %s", __PACKAGE__, $_[0]),
+          #rules => $rules,
+        },
+        anyevent => 1;
   })->then (sub {
     undef $mod;
     undef $r;

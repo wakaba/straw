@@ -37,7 +37,8 @@ sub psgi_app ($) {
   my ($class) = @_;
 
   {
-    $Worker = Straw::Worker->new_from_db_sources ($DBSources);
+    $Worker = Straw::Worker->new_from_db_sources_and_config
+        ($DBSources, $Config);
     $Worker->run ('fetch');
     $Worker->run ('process');
     $Worker->run ('expire');
