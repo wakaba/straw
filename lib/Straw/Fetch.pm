@@ -161,7 +161,7 @@ sub run_task ($) {
         return $self->fetch ($data->{fetch_key}, $options, $result);
       })->then (sub {
         $result->{continue} = 1;
-        return $db->delete ('fetch_task', {
+        return $db->update ('fetch_task', {running_since => 0}, where => {
           fetch_key => $data->{fetch_key},
           running_since => $time,
         })->then (sub {
