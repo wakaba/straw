@@ -295,19 +295,21 @@ sub _save ($$$) {
       }
     } keys %$item;
   } reverse @{$input->{items}});
-  return unless @insert;
-  return $self->db->insert ('stream_item_data', \@insert, duplicate => {
-    data => $self->db->bare_sql_fragment ('VALUES(data)'),
-    timestamp => $self->db->bare_sql_fragment ('VALUES(timestamp)'),
-    updated => $self->db->bare_sql_fragment ('if (data != values(data), VALUES(updated), updated)'),
-  })->then (sub {
-    return $self->db->select ('stream_subscription', {
-      stream_id => Dongry::Type->serialize ('text', $stream_id),
-    }, fields => ['process_id'])->then (sub {
-      $current->{result}->{process} = 1;
-      return $self->add_process_task
-          ([map { $_->{process_id} } @{$_[0]->all}],
-           stream_id => $stream_id);
+  return Promise->resolve->then (sub {
+    return unless @insert;
+    return $self->db->insert ('stream_item_data', \@insert, duplicate => {
+      data => $self->db->bare_sql_fragment ('VALUES(data)'),
+      timestamp => $self->db->bare_sql_fragment ('VALUES(timestamp)'),
+      updated => $self->db->bare_sql_fragment ('if (data != values(data), VALUES(updated), updated)'),
+    })->then (sub {
+      return $self->db->select ('stream_subscription', {
+        stream_id => Dongry::Type->serialize ('text', $stream_id),
+      }, fields => ['process_id'])->then (sub {
+        $current->{result}->{process} = 1;
+        return $self->add_process_task
+            ([map { $_->{process_id} } @{$_[0]->all}],
+             stream_id => $stream_id);
+      });
     });
   })->then (sub {
     if (defined $current->{process_args}->{stream_id} and
@@ -399,6 +401,7 @@ sub run_task ($) {
       if ($result->{more_input_item}) {
         return $db->update ('process_task', {
           running_since => 0,
+          run_after => time,
         }, where => {
           task_id => {-in => \@task_id},
           running_since => $time,
