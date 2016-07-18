@@ -143,7 +143,7 @@
 <template id=process-template>
   <h1>Process <code class=process_id></code></h1>
 
-  <p>Input: <span class=item-list data-name=input_ids data-min=0 data-source-id data-stream-id></span>
+  <p>Input: <span class=item-list data-name=input_ids data-min=0 data-source-id data-stream-id data-origin></span>
 
   <p>Steps:
     <ul class=steps>
@@ -371,6 +371,29 @@
           });
         };
       }) () }
+      if (el.hasAttribute ('data-origin')) { (function () {
+        var addItem = document.createElement ('span');
+        addItem.className = 'item origin add';
+        addItem.innerHTML = '<input name=origin required> <button type=button>Add origin</button>';
+        el.appendChild (addItem);
+        var insertItem = function (origin) {
+          var l = document.createElement ('span');
+          l.className = 'item origin';
+          l.setAttribute ('data-value', origin);
+          l.innerHTML = '<data></data> <button type=button class=delete-button>Delete</button>';
+          l.firstChild.textContent = origin;
+          l.lastChild.onclick = function () {
+            if (confirm ('Delete?')) this.parentNode.remove ();
+          };
+          el.insertBefore (l, addItem);
+        }; // insertItem
+        input.origins.forEach (insertItem);
+        addItem.querySelector ('button').onclick = function () {
+          var v = this.parentNode.querySelector ('[name=origin]')
+          if (v.value) insertItem (v.value); // XXX validation
+          v.value = '';
+        };
+      }) () }
 
       el.stGetValues = function () {
         var sourceIds = $$(el, '.item.source[data-value]').map (function (el) {
@@ -379,8 +402,11 @@
         var streamIds = $$(el, '.item.stream[data-value]').map (function (el) {
           return el.getAttribute ('data-value');
         });
+        var origins = $$(el, '.item.origin[data-value]').map (function (el) {
+          return el.getAttribute ('data-value');
+        });
         // XXX data-min/data-max validation
-        return {sourceIds: sourceIds, streamIds: streamIds};
+        return {sourceIds: sourceIds, streamIds: streamIds, origins: origins};
       }; // stGetValues
     });
   } // makeItemList
@@ -672,13 +698,16 @@
       if (!inputSourceIds || !inputSourceIds.forEach) inputSourceIds = [];
       var inputStreamIds = json.process_options.input_stream_ids;
       if (!inputStreamIds || !inputStreamIds.forEach) inputStreamIds = [];
+      var inputOrigins = json.process_options.input_origins;
+      if (!inputOrigins || !inputOrigins.forEach) inputOrigins = [];
       var outputStreamIds = [];
       if (json.process_options.output_stream_id)
           outputStreamIds.push (json.process_options.output_stream_id);
 
       makeItemList (section, '.item-list[data-name=input_ids]',
                     {sourceIds: inputSourceIds,
-                     streamIds: inputStreamIds}); // XXX onchange
+                     streamIds: inputStreamIds,
+                     origins: inputOrigins}); // XXX onchange
       makeItemList (section, '.item-list[data-name=output_ids]',
                     {streamIds: outputStreamIds}); // XXX onchange
 
@@ -710,6 +739,7 @@
           var input = section.querySelector ('.item-list[data-name=input_ids]').stGetValues ();
           json.process_options.input_source_ids = input.sourceIds;
           json.process_options.input_stream_ids = input.streamIds;
+          json.process_options.input_origins = input.origins;
           json.process_options.steps = $$ (section, '.steps > li').map (function (el) {
             return el.stStep;
           });
