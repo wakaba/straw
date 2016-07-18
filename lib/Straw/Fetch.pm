@@ -133,7 +133,7 @@ sub schedule_next_fetch_task ($$$) {
     }
 
     unless (defined $every) {
-      return $self->db->delete ('fetch_task', where => {
+      return $self->db->delete ('fetch_task', {
         fetch_key => Dongry::Type->serialize ('text', $fetch_key),
         running_since => {'!=', 0},
       });
