@@ -273,7 +273,6 @@ sub _save ($$$) {
   die "Input type |$input->{type}| is different from |Stream|"
       if not defined $input->{type} or not $input->{type} eq 'Stream';
 
-  return Promise->resolve ($input) unless @{$input->{items}};
   my $updated = time;
   my @insert = (map {
     my $item = $_;
