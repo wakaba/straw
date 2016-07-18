@@ -116,19 +116,21 @@ sub schedule_next_fetch_task ($$$) {
     fetch_key => Dongry::Type->serialize ('text', $fetch_key),
   }, fields => ['fetch_options', 'schedule_options'])->then (sub {
     my @all = @{$_[0]->all};
-    return undef unless @all;
-    my $fetch_options = Dongry::Type->parse
-        ('json', $all[0]->{fetch_options});
-    my @schedule_options = map {
-      Dongry::Type->parse ('json', $_->{schedule_options});
-    } @all;
 
     my $every;
-    for my $options (@schedule_options) {
-      if (defined $options->{every_seconds}) {
-        $every = $options->{every_seconds}
-            if not defined $every or
-               $every > $options->{every_seconds};
+    if (@all) {
+      my $fetch_options = Dongry::Type->parse
+          ('json', $all[0]->{fetch_options});
+      my @schedule_options = map {
+        Dongry::Type->parse ('json', $_->{schedule_options});
+      } @all;
+
+      for my $options (@schedule_options) {
+        if (defined $options->{every_seconds}) {
+          $every = $options->{every_seconds}
+              if not defined $every or
+                  $every > $options->{every_seconds};
+        }
       }
     }
 
