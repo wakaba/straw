@@ -167,7 +167,14 @@ sub run_task ($) {
         return $self->fetch ($data->{fetch_key}, $options, $result);
       })->then (sub {
         $result->{continue} = 1;
-        return $self->schedule_next_fetch_task ($data->{fetch_key}, {});
+        return $db->update ('fetch_task', {
+          run_after => $time + 10*500*24*60*60,
+        }, where => {
+          fetch_key => Dongry::Type->serialize ('text', $data->{fetch_key}),
+          running_since => $time,
+        })->then (sub {
+          return $self->schedule_next_fetch_task ($data->{fetch_key}, {});
+        });
       });
     }
     return $p;
