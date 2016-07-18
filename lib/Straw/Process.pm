@@ -246,7 +246,7 @@ sub _steps ($$$) {
               push @$items, $code->($self, $step, $item, $result); # XXX promise
               # XXX validation
             }
-            return {type => 'Stream', items => $items};
+            return {type => 'Stream', items => [grep { defined $_ } @$items]};
           },
         } if defined $code;
       }

@@ -43,6 +43,28 @@ $Straw::Step->{url_suffix_filter} = {
   },
 }; # url_suffix_filter
 
+$Straw::ItemStep->{item_url_prefix_filter} = sub {
+  my ($self, $step, $item, $result) = @_;
+  my $value = $step->{value};
+  if (not defined $value or
+      not defined $item->{0}->{props}->{url} or
+      not $item->{0}->{props}->{url} =~ m{\A\Q$value\E}) {
+    return undef;
+  }
+  return $item;
+}; # item_url_prefix_filter
+
+$Straw::ItemStep->{item_url_suffix_filter} = sub {
+  my ($self, $step, $item, $result) = @_;
+  my $value = $step->{value};
+  if (not defined $value or
+      not defined $item->{0}->{props}->{url} or
+      not $item->{0}->{props}->{url} =~ m{\Q$value\E\z}) {
+    return undef;
+  }
+  return $item;
+}; # item_url_suffix_filter
+
 $Straw::Step->{httpres_to_doc} = {
   in_type => 'HTTP::Response',
   code => sub {
@@ -271,6 +293,17 @@ $Straw::ItemStep->{dump_to_prop_from_element} = sub {
   }
   return $item;
 }; # dump_to_prop_from_element
+
+$Straw::ItemStep->{append_text_to_prop} = sub {
+  my ($self, $step, $item, $result) = @_;
+  my $value = $step->{value};
+  if (defined $value) {
+    $item->{0}->{props}->{$step->{field}} = ''
+        unless defined $item->{0}->{props}->{$step->{field}};
+    $item->{0}->{props}->{$step->{field}} .= $value;
+  }
+  return $item;
+}; # append_text_to_prop
 
 $Straw::Step->{dump_stream} = {
   in_type => 'Stream',
