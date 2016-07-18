@@ -119,8 +119,6 @@ sub schedule_next_fetch_task ($$$) {
 
     my $every;
     if (@all) {
-      my $fetch_options = Dongry::Type->parse
-          ('json', $all[0]->{fetch_options});
       my @schedule_options = map {
         Dongry::Type->parse ('json', $_->{schedule_options});
       } @all;
@@ -140,6 +138,8 @@ sub schedule_next_fetch_task ($$$) {
         running_since => {'!=', 0},
       });
     } else {
+      my $fetch_options = Dongry::Type->parse
+          ('json', $all[0]->{fetch_options});
       $every = 1 if $every < 1;
       return $self->add_fetch_task
           ($fetch_options, delta => $every, result => $result);

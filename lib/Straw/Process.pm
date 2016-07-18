@@ -198,6 +198,7 @@ sub _load ($$) {
         $current->{last_updated} = $_->{updated};
       }
       return unless @item_key;
+      $current->{result}->{more_input_item} = 1;
       return $self->db->select ('stream_item_data', {
         stream_id => Dongry::Type->serialize ('text', $dest_stream_id),
         item_key => {-in => \@item_key},
@@ -395,11 +396,19 @@ sub run_task ($) {
     }
     return $p->then (sub {
       $result->{continue} = 1;
-      return $db->delete ('process_task', {
-        task_id => {-in => \@task_id},
-        #process_id => $process_id,
-        #running_since => $time,
-      });
+      if ($result->{more_input_item}) {
+        return $db->update ('process_task', {
+          running_since => 0,
+        }, where => {
+          task_id => {-in => \@task_id},
+          running_since => $time,
+        });
+      } else {
+        return $db->delete ('process_task', {
+          task_id => {-in => \@task_id},
+          running_since => $time,
+        });
+      }
     });
   })->then (sub {
     return $result;
