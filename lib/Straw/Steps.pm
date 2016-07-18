@@ -168,6 +168,17 @@ $Straw::ItemStep->{set_text_prop_from_element} = sub {
   return $item;
 }; # set_text_prop_from_element
 
+$Straw::ItemStep->{set_html_prop_from_element} = sub {
+  my ($self, $step, $item, $result) = @_;
+  die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
+  my $el = $item->{0}->{element};
+  $el = $el->query_selector ($step->{path})
+      if defined $step->{path} and length $step->{path};
+  return $item unless defined $el;
+  $item->{0}->{props}->{$step->{field}} = $el->inner_html;
+  return $item;
+}; # set_html_prop_from_element
+
 $Straw::ItemStep->{set_boolean_prop_by_has_element} = sub {
   my ($self, $step, $item, $result) = @_;
   die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
