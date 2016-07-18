@@ -131,11 +131,17 @@ sub schedule_next_fetch_task ($$$) {
                $every > $options->{every_seconds};
       }
     }
-    return undef unless defined $every;
 
-    $every = 1 if $every < 1;
-    return $self->add_fetch_task
-        ($fetch_options, delta => $every, result => $result);
+    unless (defined $every) {
+      return $self->db->delete ('fetch_task', where => {
+        fetch_key => Dongry::Type->serialize ('text', $fetch_key),
+        running_since => {'!=', 0},
+      });
+    } else {
+      $every = 1 if $every < 1;
+      return $self->add_fetch_task
+          ($fetch_options, delta => $every, result => $result);
+    }
   });
 } # schedule_next_fetch_task
 
@@ -161,12 +167,7 @@ sub run_task ($) {
         return $self->fetch ($data->{fetch_key}, $options, $result);
       })->then (sub {
         $result->{continue} = 1;
-        return $db->update ('fetch_task', {running_since => 0}, where => {
-          fetch_key => $data->{fetch_key},
-          running_since => $time,
-        })->then (sub {
-          return $self->schedule_next_fetch_task ($data->{fetch_key}, {});
-        });
+        return $self->schedule_next_fetch_task ($data->{fetch_key}, {});
       });
     }
     return $p;

@@ -225,6 +225,19 @@ sub main ($$$) {
         die $_[0];
       }
     });
+  } elsif (@$path == 2 and $path->[0] eq 'source' and $path->[1] eq 'fetch') {
+    # /source/fetch
+    $app->requires_request_method ({POST => 1});
+    # XXX CSRF
+    my $options = json_bytes2perl $app->bare_param ('fetch_options') // '';
+    return $app->throw_error (400, reason_phrase => 'Bad |fetch_options|')
+        unless defined $options and ref $options eq 'HASH';
+    my $fetch = Straw::Fetch->new_from_db ($db);
+    return $fetch->add_fetch_task ($options)->then (sub {
+      $app->http->set_status (202);
+      $class->send_json ($app, {});
+      $Worker->run ('fetch');
+    });
   } elsif (@$path == 2 and $path->[0] eq 'source' and $path->[1] eq 'logs') {
     # /source/logs
     my $fetch = Straw::Fetch->new_from_db ($db);
