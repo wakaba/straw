@@ -17,6 +17,32 @@ use Web::Feed::Parser;
 $Straw::Step ||= {};
 $Straw::ItemStep ||= {};
 
+$Straw::Step->{url_prefix_filter} = {
+  in_type => 'HTTP::Response',
+  code => sub {
+    my $step = $_[1];
+    my $in = $_[2];
+    my $value = $step->{value};
+    if (not defined $value or not $in->{url} =~ m{\A\Q$value\E}) {
+      return {type => 'Null'};
+    }
+    return $in;
+  },
+}; # url_prefix_filter
+
+$Straw::Step->{url_suffix_filter} = {
+  in_type => 'HTTP::Response',
+  code => sub {
+    my $step = $_[1];
+    my $in = $_[2];
+    my $value = $step->{value};
+    if (not defined $value or not $in->{url} =~ m{\Q$value\E\z}) {
+      return {type => 'Null'};
+    }
+    return $in;
+  },
+}; # url_suffix_filter
+
 $Straw::Step->{httpres_to_doc} = {
   in_type => 'HTTP::Response',
   code => sub {

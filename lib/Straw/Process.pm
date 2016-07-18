@@ -231,6 +231,9 @@ sub _steps ($$$) {
     die "Bad step" unless ref $step eq 'HASH';
     my $step_name = $step->{name} // '';
     $p = $p->then (sub {
+      my $input = $step->{input} // $_[0];
+      return $input if $input->{type} eq 'Null';
+
       my $act = $Straw::Step->{$step_name};
       if (not defined $act) {
         my $code = $Straw::ItemStep->{$step_name};
@@ -249,8 +252,6 @@ sub _steps ($$$) {
       }
       die {message => "Bad step |$step_name|",
            step => $step} unless defined $act;
-
-      my $input = $step->{input} // $_[0];
       if (not defined $input->{type} or
           not defined $act->{in_type} or
           not $act->{in_type} eq $input->{type}) {
