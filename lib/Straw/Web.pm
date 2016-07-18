@@ -435,7 +435,9 @@ sub main ($$$) {
   # XXX is_test and
   if (@$path == 2 and $path->[0] eq 'test' and $path->[1] eq 'queue') {
     # /test/queue
-    return $db->execute ('select fetch_key from fetch_task limit 1')->then (sub {
+    return $db->execute ('select fetch_key from fetch_task where run_after < ? limit 1', {
+      run_after => time + 100*24*60*60,
+    })->then (sub {
       return $class->send_json ($app, {empty => 0}) if $_[0]->first;
       return $db->execute ('select process_id from process_task limit 1')->then (sub {
         return $class->send_json ($app, {
