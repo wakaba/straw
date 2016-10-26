@@ -310,7 +310,7 @@ sub remote ($$) {
   my $p = Promise->resolve;
   my $host = $RemoteServer->get_host;
   my $dir_path = q</> . rand . q</>;
-  my $origin_prefix = q<http://> . rand;
+  my $origin_prefix = q<http://test> . rand;
   my $result = {};
   for my $key (keys %$eps) {
     my $path = $dir_path . $key;
