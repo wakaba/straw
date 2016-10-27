@@ -59,7 +59,7 @@ sub _insert_task ($$$) {
   }
 } # _insert_task
 
-sub run_process ($) {
+sub run ($) {
   my $self = $_[0];
   ## Strictly speaking, this is racy, as there is no locking between
   ## select and insert (or delete), but insert_job is almost
@@ -78,7 +78,7 @@ sub run_process ($) {
       return $self->_insert_task ($f->{next_time}, $job);
     })->then (sub { return 1 });
   });
-} # run_process
+} # run
 
 1;
 

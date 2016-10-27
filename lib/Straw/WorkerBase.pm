@@ -43,7 +43,7 @@ sub process_main ($$) {
        on_error => sub { $_[0]->destroy });
 
   my $run; $run = sub {
-    return $self->run_process->then (sub {
+    return $self->run->then (sub {
       return if $done;
       if ($_[0]) {
         return $run->();

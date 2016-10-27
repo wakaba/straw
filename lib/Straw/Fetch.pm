@@ -45,7 +45,7 @@ sub serialize_fetch ($) {
   return ($fetch_key, $fetch_options, $origin_key);
 } # serialize_fetch
 
-sub save_fetch_source ($$$$$) {
+sub save_fetch_source ($$$$) {
   my ($self, $source_id, $fetch_options, $schedule_options) = @_;
   return Promise->reject ({status => 400, reason => "Bad |fetch_options|"})
       unless defined $fetch_options and ref $fetch_options eq 'HASH';
@@ -107,12 +107,12 @@ sub add_fetch_task ($$;%) {
   });
 } # add_fetch_task
 
-sub add_fetched_task ($$$) {
-  my ($self, $fetch_options, $result) = @_;
+sub add_fetched_task ($$) {
+  my ($self, $fetch_options) = @_;
   my $fetch_key;
   ($fetch_key, undef, undef) = serialize_fetch $fetch_options;
   my ($url, $origin_key) = $self->_prepare_fetch ($fetch_options);
-  return $self->_onfetch ($fetch_key, $origin_key, $result);
+  return $self->_onfetch ($fetch_key, $origin_key);
 } # add_fetched_task
 
 sub schedule_next_fetch_task ($$) {
@@ -136,7 +136,7 @@ sub schedule_next_fetch_task ($$) {
   });
 } # schedule_next_fetch_task
 
-sub run_process ($) {
+sub run ($) {
   my $self = $_[0];
   my $db = $self->db;
   my $time = time;
@@ -165,7 +165,7 @@ sub run_process ($) {
     }
     return $p;
   });
-} # run_process
+} # run
 
 sub _prepare_fetch ($$) {
   my ($self, $options) = @_;
@@ -282,13 +282,12 @@ sub fetch ($$$$) {
   });
 } # fetch
 
-sub _onfetch ($$$$) {
-  my ($self, $fetch_key, $origin_key, $result) = @_;
+sub _onfetch ($$$) {
+  my ($self, $fetch_key, $origin_key) = @_;
   my $process = Straw::Process->new_from_db ($self->db);
   return $self->db->select ('strict_fetch_subscription', {
     fetch_key => Dongry::Type->serialize ('text', $fetch_key),
   }, fields => ['process_id'])->then (sub {
-    $result->{process} = 1;
     return $process->add_process_task
         ([map { $_->{process_id} } @{$_[0]->all}], fetch_key => $fetch_key);
   })->then (sub {
@@ -296,7 +295,6 @@ sub _onfetch ($$$$) {
     return $self->db->select ('origin_fetch_subscription', {
       origin_key => Dongry::Type->serialize ('text', $origin_key),
     }, fields => ['process_id'])->then (sub {
-      $result->{process} = 1;
       return $process->add_process_task
           ([map { $_->{process_id} } @{$_[0]->all}],
            fetch_key => $fetch_key);

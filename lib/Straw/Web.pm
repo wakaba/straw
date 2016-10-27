@@ -15,7 +15,6 @@ use Web::UserAgent::Functions qw(http_post);
 use Straw::Fetch;
 use Straw::Stream;
 use Straw::Process;
-use Straw::Worker;
 use Straw::Sink;
 use Straw::Database;
 use Straw::JobScheduler;
@@ -25,7 +24,6 @@ my $Config = $Straw::Database::Config;
 my $IndexFile = Promised::File->new_from_path
     (path (__FILE__)->parent->parent->parent->child ('index.html'));
 
-my $Worker;
 my $Signals = {};
 my $Shutdowning = 0;
 my $ShutdownJobScheduler = sub { };
@@ -36,39 +34,22 @@ sub psgi_app ($) {
   my ($class) = @_;
 
   {
-    $Worker = Straw::Worker->new_from_db_sources_and_config
-        ($Straw::Database::Sources, $Config);
-    $Worker->run ('process');
-
-    my $interval = AE::timer 5, $ENV{STRAW_JOB_INTERVAL} || 60, sub {
-      $Worker->run ('process');
-    };
-
     $Signals->{TERM} = Promised::Command::Signals->add_handler (TERM => sub {
-      $Worker->terminate;
-      undef $Worker;
       %$Signals = ();
-      undef $interval;
       $Shutdowning = 1;
       $ShutdownJobScheduler->();
       $ShutdownFetch->();
       $ShutdownProcess->();
     });
     $Signals->{INT} = Promised::Command::Signals->add_handler (INT => sub {
-      $Worker->terminate;
-      undef $Worker;
       %$Signals = ();
-      undef $interval;
       $Shutdowning = 1;
       $ShutdownJobScheduler->();
       $ShutdownFetch->();
       $ShutdownProcess->();
     });
     $Signals->{QUIT} = Promised::Command::Signals->add_handler (QUIT => sub {
-      $Worker->terminate;
-      undef $Worker;
       %$Signals = ();
-      undef $interval;
       $Shutdowning = 1;
       $ShutdownJobScheduler->();
       $ShutdownFetch->();
@@ -147,10 +128,10 @@ sub psgi_app ($) {
       }
     });
   }
-  if (0) {
+  {
     my $fork = AnyEvent::Fork->new;
-    $fork->require ('Straw::Expire');
-    $fork->run ('Straw::Fetch::main', sub {
+    $fork->require ('Straw::Process');
+    $fork->run ('Straw::Process::main', sub {
       my $fh = $_[0];
       my $rbuf = '';
       my $hdl; $hdl = AnyEvent::Handle->new
@@ -233,7 +214,6 @@ sub main ($$$) {
       my $fetch = Straw::Fetch->new_from_db ($db);
       if ($app->http->request_method eq 'POST') {
         # XXX CSRF
-        my $result = {};
         return $fetch->save_fetch_source
             ($path->[1],
              (json_bytes2perl $app->bare_param ('fetch_options') // ''),
@@ -273,16 +253,10 @@ sub main ($$$) {
         my $fetch_options = Dongry::Type->parse
             ('json', $source->{fetch_options});
         if ($app->bare_param ('skip_fetch')) {
-          my $result = {};
-          return $fetch->add_fetched_task ($fetch_options, $result)->then (sub {
-            $Worker->run ('process') # don't return
-                if defined $result->{process};
-            return undef;
-          });
+          return $fetch->add_fetched_task ($fetch_options);
         } else {
           return $fetch->add_fetch_task ($fetch_options);
         }
-        #XXX then, add schedule_task
       })->then (sub {
         $app->http->set_status (202);
         $class->send_json ($app, {});
@@ -316,12 +290,10 @@ sub main ($$$) {
     return $app->throw_error (400, reason_phrase => 'Bad |type|')
         unless $type eq 'fetch_source';
     my $fetch = Straw::Fetch->new_from_db ($db);
-    my $result = {};
     return $fetch->save_fetch_source
         (undef,
          (json_bytes2perl ($app->bare_param ('fetch_options') // '')),
-         (json_bytes2perl ($app->bare_param ('schedule_options') // '')),
-         $result)->then (sub {
+         (json_bytes2perl ($app->bare_param ('schedule_options') // '')))->then (sub {
       return $class->send_json ($app, {source_id => $_[0]});
     }, sub {
       if (ref $_[0] eq 'HASH') {
