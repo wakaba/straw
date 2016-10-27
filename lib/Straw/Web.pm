@@ -74,7 +74,7 @@ sub psgi_app ($) {
   {
     my $fork = AnyEvent::Fork->new;
     $fork->require ('Straw::JobScheduler');
-    $fork->run ('Straw::JobScheduler::process_main', sub {
+    $fork->run ('Straw::JobScheduler::main', sub {
       my $fh = $_[0];
       my $rbuf = '';
       my $hdl; $hdl = AnyEvent::Handle->new

@@ -120,7 +120,7 @@ sub web_server (;@) {
     $HTTPServer = Promised::Plackup->new;
     $HTTPServer->set_option ('--server' => 'Twiggy');
     $HTTPServer->envs->{APP_CONFIG} = $temp_path;
-    $HTTPServer->envs->{STRAW_JOB_INTERVAL} = $args{job_interval} || 5;
+    $HTTPServer->envs->{STRAW_WORKER_INTERVAL} = $args{worker_interval} || 5;
     $HTTPServer->envs->{http_proxy} = remote_url q<>;
     return Promise->all ([
       Promised::File->new_from_path ($root_path->child ('db/straw.sql'))->read_byte_string->then (sub {

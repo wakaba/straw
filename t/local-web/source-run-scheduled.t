@@ -4,7 +4,7 @@ use Path::Tiny;
 use lib glob path (__FILE__)->parent->parent->parent->child ('t_deps/lib');
 use Tests;
 
-my $wait = web_server (job_interval => 1);
+my $wait = web_server (worker_interval => 1);
 
 test {
   my $c = shift;

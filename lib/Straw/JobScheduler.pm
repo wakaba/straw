@@ -1,20 +1,14 @@
 package Straw::JobScheduler;
 use strict;
 use warnings;
-use AnyEvent;
-use AnyEvent::Handle;
-use Promise;
-use Promised::Flow;
+use Straw::WorkerBase;
+push our @ISA, qw(Straw::WorkerBase);
 use Time::HiRes qw(time);
-use Straw::Database;
 
-sub new_from_db ($) {
-  return bless {db => $_[1]}, $_[0];
-} # new_from_db
-
-sub db ($) {
-  return $_[0]->{db};
-} # db
+sub main ($) {
+  my $fh = shift;
+  __PACKAGE__->process_main ($fh);
+} # main
 
 sub insert_job ($$$;%) {
   my ($self, $key, $job, $schedule_options_list, %args) = @_;
@@ -45,7 +39,24 @@ sub insert_job ($$$;%) {
   }
 } # insert_job
 
-sub run_job ($) {
+sub insert_task ($$$) {
+  my ($self, $run_after, $job) = @_;
+  if ($job->{type} eq 'fetch_task') {
+    return $self->db->insert ('fetch_task', [{
+      fetch_key => Dongry::Type->serialize ('text', $job->{fetch_key}),
+      fetch_options => Dongry::Type->serialize ('json', $job->{fetch_options}),
+      run_after => $run_after,
+      running_since => 0,
+    }], duplicate => {
+      run_after => $self->db->bare_sql_fragment (q{LEAST(run_after, VALUES(run_after))}),
+      running_since => 0,
+    });
+  } else {
+    die "Unknown job type |$job->{type}|";
+  }
+} # insert_task
+
+sub run_process ($) {
   my $self = $_[0];
   ## Strictly speaking, this is racy, as there is no locking between
   ## select and insert (or delete), but insert_job is almost
@@ -64,78 +75,7 @@ sub run_job ($) {
       return $self->insert_task ($f->{next_time}, $job);
     })->then (sub { return 1 });
   });
-} # run_job
-
-sub insert_task ($$$) {
-  my ($self, $run_after, $job) = @_;
-  if ($job->{type} eq 'fetch_task') {
-    return $self->db->insert ('fetch_task', [{
-      fetch_key => Dongry::Type->serialize ('text', $job->{fetch_key}),
-      fetch_options => Dongry::Type->serialize ('json', $job->{fetch_options}),
-      run_after => $run_after,
-      running_since => 0,
-    }], duplicate => {
-      run_after => $self->db->bare_sql_fragment (q{LEAST(run_after, VALUES(run_after))}),
-      running_since => 0,
-    });
-  } else {
-    die "Unknown job type |$job->{type}|";
-  }
-} # insert_task
-
-my $JobInterval = $ENV{STRAW_JOB_INTERVAL} || 10;
-
-sub process_main ($) {
-  my $fh = shift;
-
-  my $db = Dongry::Database->new (sources => $Straw::Database::Sources);
-  my $self = __PACKAGE__->new_from_db ($db);
-
-  my $done = 0;
-  my $signals = {};
-  my $shutdown = sub {
-    $done = 1;
-    undef $signals;
-  }; # $shutdown
-
-  for my $signal (qw(INT TERM QUIT)) {
-    $signals->{$signal} = AE::signal $signal => $shutdown;
-  }
-
-  my $hdl = AnyEvent::Handle->new
-      (fh => $fh,
-       on_read => sub {
-         while ($_[0]->{rbuf} =~ s/^([^\x0A]*)\x0A//) {
-           my $line = $1;
-           if ($line =~ /\Ashutdown\z/) {
-             $shutdown->();
-           } else {
-             #XXX $wp->log ("Broken command from main process: |$line|");
-           }
-         }
-       },
-       on_eof => sub { $_[0]->destroy },
-       on_error => sub { $_[0]->destroy });
-
-  my $run; $run = sub {
-    return $self->run_job->then (sub {
-      return if $done;
-      if ($_[0]) {
-        return $run->();
-      } else {
-        return promised_sleep ($JobInterval)->then ($run);
-      }
-    });
-  }; # $run
-
-  (promised_cleanup {
-    undef $run;
-    $shutdown->();
-    return $db->disconnect;
-  } Promise->resolve (1)->then ($run))->to_cv->recv;
-
-  close $fh;
-} # process_main
+} # run_process
 
 1;
 
