@@ -5,7 +5,6 @@ use AnyEvent;
 use Promise;
 use Web::UserAgent::Functions qw(http_post);
 use Dongry::Database;
-use Straw::Fetch;
 use Straw::Process;
 use Straw::Expire;
 
@@ -14,8 +13,7 @@ my $DEBUG = $ENV{WORKER_DEBUG};
 sub new_from_db_sources_and_config ($$$) {
   return bless {db_sources => $_[1],
                 config => $_[2],
-                worker_count => {fetch => 0,
-                                 process => 0,
+                worker_count => {process => 0,
                                  all => 0}}, $_[0];
 } # new_from_db_and_config
 
@@ -92,7 +90,6 @@ sub run ($$) {
   $self->{worker_count}->{all}++;
   warn "Worker $type - start (all=$self->{worker_count}->{all} $type=$self->{worker_count}->{$type})\n" if $DEBUG;
   my $cls = {
-    fetch => 'Straw::Fetch',
     process => 'Straw::Process',
     expire => 'Straw::Expire',
   }->{$type};
@@ -105,7 +102,6 @@ sub run ($$) {
       my $more = $_[0];
       $self->{active_worker_count}->{$type}--;
       $self->{active_worker_count}->{all}--;
-      $self->run ('fetch') if $more->{fetch}; # don't return
       $self->run ('process') if $more->{process}; # don't return
       $after = $more->{next_action_time};
       return $r->() if $more->{continue};

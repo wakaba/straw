@@ -1,6 +1,8 @@
 package Straw::Fetch;
 use strict;
 use warnings;
+use Straw::WorkerBase;
+push our @ISA, qw(Straw::WorkerBase);
 use Time::HiRes qw(time);
 use Digest::SHA qw(sha1_hex);
 use JSON::PS;
@@ -12,13 +14,10 @@ use Wanage::URL;
 use Straw::Process;
 use Straw::JobScheduler;
 
-sub new_from_db ($$) {
-  return bless {db => $_[1]}, $_[0];
-} # new_from_db
-
-sub db ($) {
-  return $_[0]->{db};
-} # db
+sub main ($) {
+  my $fh = shift;
+  __PACKAGE__->process_main ($fh);
+} # main
 
 sub load_fetch_source_by_id ($$) {
   my ($self, $source_id) = @_;
@@ -47,7 +46,7 @@ sub serialize_fetch ($) {
 } # serialize_fetch
 
 sub save_fetch_source ($$$$$) {
-  my ($self, $source_id, $fetch_options, $schedule_options, $result) = @_;
+  my ($self, $source_id, $fetch_options, $schedule_options) = @_;
   return Promise->reject ({status => 400, reason => "Bad |fetch_options|"})
       unless defined $fetch_options and ref $fetch_options eq 'HASH';
   return Promise->reject ({status => 400, reason => "Bad |schedule_options|"})
@@ -137,7 +136,7 @@ sub schedule_next_fetch_task ($$) {
   });
 } # schedule_next_fetch_task
 
-sub run_task ($) {
+sub run_process ($) {
   my $self = $_[0];
   my $db = $self->db;
   my $time = time;
@@ -158,25 +157,15 @@ sub run_task ($) {
       return $p = $p->then (sub {
         return $self->fetch ($data->{fetch_key}, $options, $result);
       })->then (sub {
-        $result->{continue} = 1;
-        return $db->update ('fetch_task', {
-          run_after => $time + 10*500*24*60*60,
-        }, where => {
+        return $db->delete ('fetch_task', {
           fetch_key => Dongry::Type->serialize ('text', $data->{fetch_key}),
           running_since => $time,
         });
       });
     }
     return $p;
-  })->then (sub {
-    return $db->execute ('select run_after from fetch_task order by run_after asc limit 1')->then (sub {
-      my $d = $_[0]->first;
-      $result->{next_action_time} = $d->{run_after} if defined $d;
-      return $result;
-    }) unless $result->{continue};
-    return $result;
   });
-} # run_task
+} # run_process
 
 sub _prepare_fetch ($$) {
   my ($self, $options) = @_;
