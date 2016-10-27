@@ -4,6 +4,7 @@ use warnings;
 use AnyEvent;
 use AnyEvent::Handle;
 use Promise;
+use Promised::Flow;
 use Time::HiRes qw(time);
 use Straw::Database;
 
@@ -35,7 +36,7 @@ sub insert_job ($$$;%) {
       schedule_options_list => Dongry::Type->serialize ('json', $schedule_options_list),
       next_time => time + $every,
     }], duplicate => 'replace')->then (sub {
-      $self->insert_task (time, $job);
+      return $self->insert_task (time, $job) if $args{first};
     });
   } else {
     return $self->db->delete ('job_schedule', {
@@ -53,7 +54,7 @@ sub run_job ($) {
     next_time => {'<', time},
   }, order => ['next_time', 'asc'], limit => 1)->then (sub {
     my $f = $_[0]->first;
-    return unless defined $f;
+    return 0 unless defined $f;
 
     my $job = Dongry::Type->parse ('json', $f->{job});
     my $schedule_options_list = Dongry::Type->parse
@@ -61,7 +62,7 @@ sub run_job ($) {
 
     return $self->insert_job ($f->{key}, $job, $schedule_options_list)->then (sub {
       return $self->insert_task ($f->{next_time}, $job);
-    });
+    })->then (sub { return 1 });
   });
 } # run_job
 
@@ -78,7 +79,7 @@ sub insert_task ($$$) {
       running_since => 0,
     });
   } else {
-    # XXX
+    die "Unknown job type |$job->{type}|";
   }
 } # insert_task
 
@@ -90,22 +91,17 @@ sub process_main ($) {
   my $db = Dongry::Database->new (sources => $Straw::Database::Sources);
   my $self = __PACKAGE__->new_from_db ($db);
 
-  my $p;
-  my $timer = AE::timer 0, $JobInterval, sub {
-    $p = $self->run_job;
-  };
-
-  my $cv = AE::cv;
   my $done = 0;
   my $signals = {};
   my $shutdown = sub {
-    $cv->send unless $done++;
-    undef $timer;
+    $done = 1;
     undef $signals;
   }; # $shutdown
+
   for my $signal (qw(INT TERM QUIT)) {
     $signals->{$signal} = AE::signal $signal => $shutdown;
   }
+
   my $hdl = AnyEvent::Handle->new
       (fh => $fh,
        on_read => sub {
@@ -121,11 +117,22 @@ sub process_main ($) {
        on_eof => sub { $_[0]->destroy },
        on_error => sub { $_[0]->destroy });
 
-  $cv->recv;
+  my $run; $run = sub {
+    return $self->run_job->then (sub {
+      return if $done;
+      if ($_[0]) {
+        return $run->();
+      } else {
+        return promised_sleep ($JobInterval)->then ($run);
+      }
+    });
+  }; # $run
 
-  Promise->resolve ($p)->then (sub {
+  (promised_cleanup {
+    undef $run;
+    $shutdown->();
     return $db->disconnect;
-  })->to_cv->recv;
+  } Promise->resolve (1)->then ($run))->to_cv->recv;
 
   close $fh;
 } # process_main
