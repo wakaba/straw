@@ -1,15 +1,18 @@
 package Straw::JobScheduler;
 use strict;
 use warnings;
-use Straw::WorkerBase;
-push our @ISA, qw(Straw::WorkerBase);
 use Time::HiRes qw(time);
+use Dongry::Type;
+use Dongry::Type::JSONPS;
 use Straw::Expire;
 
-sub main ($) {
-  my $fh = shift;
-  __PACKAGE__->process_main ($fh);
-} # main
+sub new_from_db ($) {
+  return bless {db => $_[1]}, $_[0];
+} # new_from_db
+
+sub db ($) {
+  return $_[0]->{db};
+} # db
 
 sub insert_job ($$$;%) {
   my ($self, $key, $job, $schedule_options_list, %args) = @_;

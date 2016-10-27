@@ -1,8 +1,6 @@
 package Straw::Process;
 use strict;
 use warnings;
-use Straw::WorkerBase;
-push our @ISA, qw(Straw::WorkerBase);
 use Time::HiRes qw(time);
 use Digest::SHA qw(sha1_hex);
 use JSON::PS;
@@ -10,10 +8,13 @@ use Dongry::Type;
 use Straw::Fetch;
 use Straw::Steps;
 
-sub main ($) {
-  my $fh = shift;
-  __PACKAGE__->process_main ($fh);
-} # main
+sub new_from_db ($) {
+  return bless {db => $_[1]}, $_[0];
+} # new_from_db
+
+sub db ($) {
+  return $_[0]->{db};
+} # db
 
 sub load_process_by_id ($$) {
   my ($self, $process_id) = @_;

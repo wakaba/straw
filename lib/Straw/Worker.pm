@@ -1,20 +1,22 @@
-package Straw::WorkerBase;
+package Straw::Worker;
 use strict;
 use warnings;
 use AnyEvent;
 use AnyEvent::Handle;
 use Promise;
 use Promised::Flow;
+use Dongry::Database;
 use Straw::Database;
+use Straw::JobScheduler;
+use Straw::Fetch;
+use Straw::Process;
 
 my $ProcessInterval = $ENV{STRAW_WORKER_INTERVAL} || 60;
 
-sub process_main ($$) {
-  my $class = shift;
+sub main ($) {
   my $fh = shift;
 
   my $db = Dongry::Database->new (sources => $Straw::Database::Sources);
-  my $self = $class->new_from_db ($db);
 
   my $done = 0;
   my $signals = {};
@@ -42,33 +44,35 @@ sub process_main ($$) {
        on_eof => sub { $_[0]->destroy },
        on_error => sub { $_[0]->destroy });
 
-  my $run; $run = sub {
-    return $self->run->then (sub {
-      return if $done;
-      if ($_[0]) {
-        return $run->();
-      } else {
-        return promised_sleep ($ProcessInterval)->then ($run);
-      }
-    });
-  }; # $run
+  my @p;
+  my %run;
+  for my $class (qw(
+    Straw::JobScheduler
+    Straw::Fetch
+    Straw::Process
+  )) {
+    my $self = $class->new_from_db ($db);
+    $run{$class} = sub {
+      return $self->run->then (sub {
+        return if $done;
+        if ($_[0]) {
+          return $run{$class}->();
+        } else {
+          return promised_sleep ($ProcessInterval)->then ($run{$class});
+        }
+      });
+    }; # $run{$class}
+    push @p, $run{$class}->();
+  }
 
   (promised_cleanup {
-    undef $run;
+    %run = ();
     $shutdown->();
     return $db->disconnect;
-  } Promise->resolve (1)->then ($run))->to_cv->recv;
+  } Promise->all (\@p))->to_cv->recv;
 
   close $fh;
-} # process_main
-
-sub new_from_db ($) {
-  return bless {db => $_[1]}, $_[0];
-} # new_from_db
-
-sub db ($) {
-  return $_[0]->{db};
-} # db
+} # main
 
 1;
 

@@ -26,9 +26,7 @@ my $IndexFile = Promised::File->new_from_path
 
 my $Signals = {};
 my $Shutdowning = 0;
-my $ShutdownJobScheduler = sub { };
-my $ShutdownFetch = sub { };
-my $ShutdownProcess = sub { };
+my $Shutdown = sub { };
 
 sub psgi_app ($) {
   my ($class) = @_;
@@ -37,23 +35,17 @@ sub psgi_app ($) {
     $Signals->{TERM} = Promised::Command::Signals->add_handler (TERM => sub {
       %$Signals = ();
       $Shutdowning = 1;
-      $ShutdownJobScheduler->();
-      $ShutdownFetch->();
-      $ShutdownProcess->();
+      $Shutdown->();
     });
     $Signals->{INT} = Promised::Command::Signals->add_handler (INT => sub {
       %$Signals = ();
       $Shutdowning = 1;
-      $ShutdownJobScheduler->();
-      $ShutdownFetch->();
-      $ShutdownProcess->();
+      $Shutdown->();
     });
     $Signals->{QUIT} = Promised::Command::Signals->add_handler (QUIT => sub {
       %$Signals = ();
       $Shutdowning = 1;
-      $ShutdownJobScheduler->();
-      $ShutdownFetch->();
-      $ShutdownProcess->();
+      $Shutdown->();
     });
   }
 
@@ -68,8 +60,8 @@ sub psgi_app ($) {
 
   {
     my $fork = AnyEvent::Fork->new;
-    $fork->require ('Straw::JobScheduler');
-    $fork->run ('Straw::JobScheduler::main', sub {
+    $fork->require ('Straw::Worker');
+    $fork->run ('Straw::Worker::main', sub {
       my $fh = $_[0];
       my $rbuf = '';
       my $hdl; $hdl = AnyEvent::Handle->new
@@ -93,69 +85,7 @@ sub psgi_app ($) {
       if ($Shutdowning) {
         $hdl->push_write ("shutdown\x0A");
       } else {
-        $ShutdownJobScheduler = sub { $hdl->push_write ("shutdown\x0A") };
-      }
-    });
-  }
-  {
-    my $fork = AnyEvent::Fork->new;
-    $fork->require ('Straw::Fetch');
-    $fork->run ('Straw::Fetch::main', sub {
-      my $fh = $_[0];
-      my $rbuf = '';
-      my $hdl; $hdl = AnyEvent::Handle->new
-          (fh => $fh,
-           on_read => sub {
-             $rbuf .= $_[0]->{rbuf};
-             $_[0]->{rbuf} = '';
-             while ($rbuf =~ s/^([^\x0A]*)\x0A//) {
-               my $line = $1;
-               #$self->log ("Broken command from worker process: |$line|");
-             }
-           },
-           on_error => sub {
-             $_[0]->destroy;
-             undef $hdl;
-           },
-           on_eof => sub {
-             $_[0]->destroy;
-             undef $hdl;
-           });
-      if ($Shutdowning) {
-        $hdl->push_write ("shutdown\x0A");
-      } else {
-        $ShutdownFetch = sub { $hdl->push_write ("shutdown\x0A") };
-      }
-    });
-  }
-  {
-    my $fork = AnyEvent::Fork->new;
-    $fork->require ('Straw::Process');
-    $fork->run ('Straw::Process::main', sub {
-      my $fh = $_[0];
-      my $rbuf = '';
-      my $hdl; $hdl = AnyEvent::Handle->new
-          (fh => $fh,
-           on_read => sub {
-             $rbuf .= $_[0]->{rbuf};
-             $_[0]->{rbuf} = '';
-             while ($rbuf =~ s/^([^\x0A]*)\x0A//) {
-               my $line = $1;
-               #$self->log ("Broken command from worker process: |$line|");
-             }
-           },
-           on_error => sub {
-             $_[0]->destroy;
-             undef $hdl;
-           },
-           on_eof => sub {
-             $_[0]->destroy;
-             undef $hdl;
-           });
-      if ($Shutdowning) {
-        $hdl->push_write ("shutdown\x0A");
-      } else {
-        $ShutdownProcess = sub { $hdl->push_write ("shutdown\x0A") };
+        $Shutdown = sub { $hdl->push_write ("shutdown\x0A") };
       }
     });
   }
