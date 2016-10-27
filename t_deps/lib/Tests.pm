@@ -101,8 +101,9 @@ sub remote_url ($) {
 } # remote_url
 
 push @EXPORT, qw(web_server);
-sub web_server (;$) {
-  my $web_host = $_[0];
+sub web_server (;@) {
+  my $web_host = @_ == 1 ? shift : undef;
+  my %args = @_;
   my $cv = AE::cv;
   my $bearer = rand;
   $MySQLServer = Promised::Mysqld->new;
@@ -119,6 +120,7 @@ sub web_server (;$) {
     $HTTPServer = Promised::Plackup->new;
     $HTTPServer->set_option ('--server' => 'Twiggy');
     $HTTPServer->envs->{APP_CONFIG} = $temp_path;
+    $HTTPServer->envs->{STRAW_JOB_INTERVAL} = $args{job_interval} || 5;
     $HTTPServer->envs->{http_proxy} = remote_url q<>;
     return Promise->all ([
       Promised::File->new_from_path ($root_path->child ('db/straw.sql'))->read_byte_string->then (sub {

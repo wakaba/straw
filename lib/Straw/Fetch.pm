@@ -10,6 +10,7 @@ use Promise;
 use Web::UserAgent::Functions qw(http_get http_post);
 use Wanage::URL;
 use Straw::Process;
+use Straw::JobScheduler;
 
 sub new_from_db ($$) {
   return bless {db => $_[1]}, $_[0];
@@ -55,13 +56,15 @@ sub save_fetch_source ($$$$$) {
   my $origin_key;
   ($fetch_key, $fetch_options, $origin_key) = serialize_fetch $fetch_options;
   my $p = Promise->resolve;
+  my $old_fetch_key;
   if (defined $source_id) {
     $p = $p->then (sub {
       return $self->db->select ('fetch_source', {
         source_id => Dongry::Type->serialize ('text', $source_id),
-      }, fields => ['source_id'])->then (sub {
-        die {status => 404, reason => 'Fetch source not found'}
-            unless $_[0]->first;
+      }, fields => ['source_id', 'fetch_key'])->then (sub {
+        my $f = $_[0]->first;
+        die {status => 404, reason => 'Fetch source not found'} unless $f;
+        $old_fetch_key = $f->{fetch_key};
       });
     });
   } else {
@@ -80,7 +83,10 @@ sub save_fetch_source ($$$$$) {
       schedule_options => Dongry::Type->serialize ('json', $schedule_options),
     }], duplicate => 'replace');
   })->then (sub {
-    return $self->schedule_next_fetch_task ($fetch_key, $result);
+    return $self->schedule_next_fetch_task ($fetch_key);
+  })->then (sub {
+    return $self->schedule_next_fetch_task ($old_fetch_key)
+        if defined $old_fetch_key and not $fetch_key eq $old_fetch_key;
   })->then (sub {
     return ''.$source_id;
   });
@@ -110,40 +116,24 @@ sub add_fetched_task ($$$) {
   return $self->_onfetch ($fetch_key, $origin_key, $result);
 } # add_fetched_task
 
-sub schedule_next_fetch_task ($$$) {
-  my ($self, $fetch_key, $result) = @_;
+sub schedule_next_fetch_task ($$) {
+  my ($self, $fetch_key) = @_;
   return $self->db->select ('fetch_source', {
     fetch_key => Dongry::Type->serialize ('text', $fetch_key),
   }, fields => ['fetch_options', 'schedule_options'])->then (sub {
     my @all = @{$_[0]->all};
 
-    my $every;
-    if (@all) {
-      my @schedule_options = map {
-        Dongry::Type->parse ('json', $_->{schedule_options});
-      } @all;
+    my @schedule_options = map {
+      Dongry::Type->parse ('json', $_->{schedule_options});
+    } @all;
 
-      for my $options (@schedule_options) {
-        if (defined $options->{every_seconds}) {
-          $every = $options->{every_seconds}
-              if not defined $every or
-                  $every > $options->{every_seconds};
-        }
-      }
-    }
-
-    unless (defined $every) {
-      return $self->db->delete ('fetch_task', {
-        fetch_key => Dongry::Type->serialize ('text', $fetch_key),
-        running_since => {'!=', 0},
-      });
-    } else {
-      my $fetch_options = Dongry::Type->parse
-          ('json', $all[0]->{fetch_options});
-      $every = 1 if $every < 1;
-      return $self->add_fetch_task
-          ($fetch_options, delta => $every, result => $result);
-    }
+    my $key = "fetch:$fetch_key";
+    my $js = Straw::JobScheduler->new_from_db ($self->db);
+    return $js->insert_job ($key, {
+      type => 'fetch_task',
+      fetch_key => $fetch_key,
+      fetch_options => @all ? Dongry::Type->parse ('json', $all[0]->{fetch_options}) : {},
+    }, \@schedule_options, first => 1);
   });
 } # schedule_next_fetch_task
 
@@ -174,8 +164,6 @@ sub run_task ($) {
         }, where => {
           fetch_key => Dongry::Type->serialize ('text', $data->{fetch_key}),
           running_since => $time,
-        })->then (sub {
-          return $self->schedule_next_fetch_task ($data->{fetch_key}, {});
         });
       });
     }

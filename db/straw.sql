@@ -1,3 +1,12 @@
+create table if not exists `job_schedule` (
+  `key` varbinary(255) not null,
+  `job` mediumblob not null,
+  `schedule_options_list` mediumblob not null,
+  `next_time` double not null,
+  primary key (`key`),
+  key (`next_time`)
+) default charset=binary engine=innodb;
+
 create table if not exists `fetch_source` (
   `source_id` bigint unsigned not null,
   `fetch_key` binary(80) not null,
