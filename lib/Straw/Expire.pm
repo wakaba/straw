@@ -4,23 +4,14 @@ use warnings;
 use Time::HiRes qw(time);
 use Promise;
 
-sub new_from_db ($$) {
-  return bless {db => $_[1]}, $_[0];
-} # new_from_db
-
-sub db ($) {
-  return $_[0]->{db};
-} # db
-
 my $ExpirationWorkerSleep = 10*60;
 my $FetchTimeout = 60*5;
 my $ProcessTimeout = 60*60;
 my $ErrorLogTimeout = 60*60;
 my $StreamItemTimeout = 60*60*24*10;
 
-sub run_task ($) {
-  my $self = $_[0];
-  my $db = $self->db;
+sub run ($$) {
+  my (undef, $db) = @_;
   my $now = time;
   return Promise->resolve->then (sub {
     return $db->update ('process_task', {running_since => 0}, where => {
@@ -46,10 +37,8 @@ sub run_task ($) {
     return $db->delete ('stream_item_data', {
       updated => {'<', $now - $StreamItemTimeout},
     });
-  })->then (sub {
-    return {next_action_time => $now + $ExpirationWorkerSleep};
   })
-} # run_task
+} # run
 
 1;
 

@@ -18,6 +18,7 @@ use Straw::Process;
 use Straw::Worker;
 use Straw::Sink;
 use Straw::Database;
+use Straw::JobScheduler;
 
 my $Config = $Straw::Database::Config;
 
@@ -29,6 +30,7 @@ my $Signals = {};
 my $Shutdowning = 0;
 my $ShutdownJobScheduler = sub { };
 my $ShutdownFetch = sub { };
+my $ShutdownProcess = sub { };
 
 sub psgi_app ($) {
   my ($class) = @_;
@@ -37,11 +39,9 @@ sub psgi_app ($) {
     $Worker = Straw::Worker->new_from_db_sources_and_config
         ($Straw::Database::Sources, $Config);
     $Worker->run ('process');
-    $Worker->run ('expire');
 
     my $interval = AE::timer 5, $ENV{STRAW_JOB_INTERVAL} || 60, sub {
       $Worker->run ('process');
-      $Worker->run ('expire');
     };
 
     $Signals->{TERM} = Promised::Command::Signals->add_handler (TERM => sub {
@@ -52,6 +52,7 @@ sub psgi_app ($) {
       $Shutdowning = 1;
       $ShutdownJobScheduler->();
       $ShutdownFetch->();
+      $ShutdownProcess->();
     });
     $Signals->{INT} = Promised::Command::Signals->add_handler (INT => sub {
       $Worker->terminate;
@@ -61,6 +62,7 @@ sub psgi_app ($) {
       $Shutdowning = 1;
       $ShutdownJobScheduler->();
       $ShutdownFetch->();
+      $ShutdownProcess->();
     });
     $Signals->{QUIT} = Promised::Command::Signals->add_handler (QUIT => sub {
       $Worker->terminate;
@@ -70,7 +72,17 @@ sub psgi_app ($) {
       $Shutdowning = 1;
       $ShutdownJobScheduler->();
       $ShutdownFetch->();
+      $ShutdownProcess->();
     });
+  }
+
+  {
+    my $CleanupInterval = 60*60;
+    my $db = Dongry::Database->new (sources => $Straw::Database::Sources);
+    my $js = Straw::JobScheduler->new_from_db ($db);
+    $js->insert_job ("Straw::Expire", {
+      type => 'expire_task',
+    }, [{every_seconds => $CleanupInterval}]);
   }
 
   {
@@ -132,6 +144,37 @@ sub psgi_app ($) {
         $hdl->push_write ("shutdown\x0A");
       } else {
         $ShutdownFetch = sub { $hdl->push_write ("shutdown\x0A") };
+      }
+    });
+  }
+  if (0) {
+    my $fork = AnyEvent::Fork->new;
+    $fork->require ('Straw::Expire');
+    $fork->run ('Straw::Fetch::main', sub {
+      my $fh = $_[0];
+      my $rbuf = '';
+      my $hdl; $hdl = AnyEvent::Handle->new
+          (fh => $fh,
+           on_read => sub {
+             $rbuf .= $_[0]->{rbuf};
+             $_[0]->{rbuf} = '';
+             while ($rbuf =~ s/^([^\x0A]*)\x0A//) {
+               my $line = $1;
+               #$self->log ("Broken command from worker process: |$line|");
+             }
+           },
+           on_error => sub {
+             $_[0]->destroy;
+             undef $hdl;
+           },
+           on_eof => sub {
+             $_[0]->destroy;
+             undef $hdl;
+           });
+      if ($Shutdowning) {
+        $hdl->push_write ("shutdown\x0A");
+      } else {
+        $ShutdownProcess = sub { $hdl->push_write ("shutdown\x0A") };
       }
     });
   }

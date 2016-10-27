@@ -4,6 +4,7 @@ use warnings;
 use Straw::WorkerBase;
 push our @ISA, qw(Straw::WorkerBase);
 use Time::HiRes qw(time);
+use Straw::Expire;
 
 sub main ($) {
   my $fh = shift;
@@ -30,7 +31,7 @@ sub insert_job ($$$;%) {
       schedule_options_list => Dongry::Type->serialize ('json', $schedule_options_list),
       next_time => time + $every,
     }], duplicate => 'replace')->then (sub {
-      return $self->insert_task (time, $job) if $args{first};
+      return $self->_insert_task (time, $job) if $args{first};
     });
   } else {
     return $self->db->delete ('job_schedule', {
@@ -39,7 +40,7 @@ sub insert_job ($$$;%) {
   }
 } # insert_job
 
-sub insert_task ($$$) {
+sub _insert_task ($$$) {
   my ($self, $run_after, $job) = @_;
   if ($job->{type} eq 'fetch_task') {
     return $self->db->insert ('fetch_task', [{
@@ -51,10 +52,12 @@ sub insert_task ($$$) {
       run_after => $self->db->bare_sql_fragment (q{LEAST(run_after, VALUES(run_after))}),
       running_since => 0,
     });
+  } elsif ($job->{type} eq 'expire_task') {
+    return Straw::Expire->run ($self->db);
   } else {
     die "Unknown job type |$job->{type}|";
   }
-} # insert_task
+} # _insert_task
 
 sub run_process ($) {
   my $self = $_[0];
@@ -72,7 +75,7 @@ sub run_process ($) {
         ('json', $f->{schedule_options_list});
 
     return $self->insert_job ($f->{key}, $job, $schedule_options_list)->then (sub {
-      return $self->insert_task ($f->{next_time}, $job);
+      return $self->_insert_task ($f->{next_time}, $job);
     })->then (sub { return 1 });
   });
 } # run_process

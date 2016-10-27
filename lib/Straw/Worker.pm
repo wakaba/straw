@@ -6,7 +6,6 @@ use Promise;
 use Web::UserAgent::Functions qw(http_post);
 use Dongry::Database;
 use Straw::Process;
-use Straw::Expire;
 
 my $DEBUG = $ENV{WORKER_DEBUG};
 
@@ -91,7 +90,6 @@ sub run ($$) {
   warn "Worker $type - start (all=$self->{worker_count}->{all} $type=$self->{worker_count}->{$type})\n" if $DEBUG;
   my $cls = {
     process => 'Straw::Process',
-    expire => 'Straw::Expire',
   }->{$type};
   my $mod = $cls->new_from_db ($self->db);
   my $after;
