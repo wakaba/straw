@@ -1,2 +1,4 @@
 AnyEvent
+AnyEvent::Handle
+AnyEvent::Fork
 Path::Tiny

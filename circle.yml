@@ -6,11 +6,6 @@ dependencies:
 test:
   override:
     - make test
-    - echo '{}' > config.json
-    - APP_CONFIG=config.json ./plackup -p 5114 -t Twiggy::Prefork bin/server.psgi :
-        background: true
-    - sleep 10
-    - curl http://localhost:5114
 deployment:
   heroku:
     branch: master

@@ -4,7 +4,7 @@ use Path::Tiny;
 use lib glob path (__FILE__)->parent->parent->parent->child ('t_deps/lib');
 use Tests;
 
-my $wait = web_server;
+my $wait = web_server (worker_interval => 1);
 
 test {
   my $c = shift;
@@ -14,7 +14,7 @@ test {
   })->then (sub {
     return create_source ($c,
       fetch => {url => $_[0]->{1}},
-      schedule => {every_seconds => 2},
+      schedule => {every_seconds => 3},
     );
   })->then (sub {
     $source = $_[0];
@@ -35,7 +35,7 @@ test {
     }; # $try
     return $try->()->then (sub {
       test {
-        ok $result[0] + 2 <= $result[1];
+        ok $result[0] + 2 <= $result[1], "$result[0] / $result[1]";
       } $c;
     });
   })->then (sub { done $c; undef $c });

@@ -2,82 +2,26 @@ package Straw::Web;
 use strict;
 use warnings;
 use Path::Tiny;
-use AnyEvent;
 use Promise;
 use Promised::File;
-use Promised::Command::Signals;
 use JSON::PS;
 use Wanage::HTTP;
 use Warabe::App;
 use Web::UserAgent::Functions qw(http_post);
-use Dongry::Database;
-use Dongry::Type;
-use Dongry::Type::JSONPS;
 use Straw::Fetch;
 use Straw::Stream;
 use Straw::Process;
-use Straw::Worker;
 use Straw::Sink;
+use Straw::Database;
 
-my $config_path = path ($ENV{APP_CONFIG} // die "Bad |APP_CONFIG|");
-my $Config = json_bytes2perl $config_path->slurp;
-
-my $DBSources = {master => {dsn => Dongry::Type->serialize ('text', $Config->{alt_dsns}->{master}->{straw}),
-                            writable => 1, anyevent => 1},
-                 default => {dsn => Dongry::Type->serialize ('text', $Config->{dsns}->{straw}),
-                             anyevent => 1}};
+my $Config = $Straw::Database::Config;
 
 my $IndexFile = Promised::File->new_from_path
     (path (__FILE__)->parent->parent->parent->child ('index.html'));
 
-my $Worker;
-my $Signals = {};
-
 sub psgi_app ($) {
   my ($class) = @_;
-
-  {
-    $Worker = Straw::Worker->new_from_db_sources_and_config
-        ($DBSources, $Config);
-    $Worker->run ('fetch');
-    $Worker->run ('process');
-    $Worker->run ('expire');
-
-    my $interval = AE::timer 5, 60, sub {
-      $Worker->run ('fetch');
-      $Worker->run ('process');
-      $Worker->run ('expire');
-    };
-
-    $Signals->{TERM} = Promised::Command::Signals->add_handler (TERM => sub {
-      $Worker->terminate;
-      undef $Worker;
-      %$Signals = ();
-      undef $interval;
-    });
-    $Signals->{INT} = Promised::Command::Signals->add_handler (INT => sub {
-      $Worker->terminate;
-      undef $Worker;
-      %$Signals = ();
-      undef $interval;
-    });
-    $Signals->{QUIT} = Promised::Command::Signals->add_handler (QUIT => sub {
-      $Worker->terminate;
-      undef $Worker;
-      %$Signals = ();
-      undef $interval;
-    });
-  }
-
   return sub {
-    ## This is necessary so that different forked siblings have
-    ## different seeds.
-    srand;
-
-    ## XXX Parallel::Prefork (?)
-    delete $SIG{CHLD};
-    delete $SIG{CLD};
-
     my $http = Wanage::HTTP->new_from_psgi_env ($_[0]);
     my $app = Warabe::App->new_from_http ($http);
 
@@ -85,7 +29,7 @@ sub psgi_app ($) {
     warn sprintf "Access: [%s] %s %s\n",
         scalar gmtime, $app->http->request_method, $app->http->url->stringify;
 
-    my $db = Dongry::Database->new (sources => $DBSources);
+    my $db = Dongry::Database->new (sources => $Straw::Database::Sources);
 
     return $app->execute_by_promise (sub {
       $app->requires_basic_auth ({key => $Config->{api_key}});
@@ -121,14 +65,10 @@ sub main ($$$) {
       my $fetch = Straw::Fetch->new_from_db ($db);
       if ($app->http->request_method eq 'POST') {
         # XXX CSRF
-        my $result = {};
         return $fetch->save_fetch_source
             ($path->[1],
              (json_bytes2perl $app->bare_param ('fetch_options') // ''),
-             (json_bytes2perl $app->bare_param ('schedule_options') // ''),
-             $result)->then (sub {
-          $Worker->run ('fetch') # don't return
-              if defined $result->{next_action_time};
+             (json_bytes2perl $app->bare_param ('schedule_options') // ''))->then (sub {
           return $class->send_json ($app, {});
         }, sub {
           if (ref $_[0] eq 'HASH') {
@@ -164,20 +104,13 @@ sub main ($$$) {
         my $fetch_options = Dongry::Type->parse
             ('json', $source->{fetch_options});
         if ($app->bare_param ('skip_fetch')) {
-          my $result = {};
-          return $fetch->add_fetched_task ($fetch_options, $result)->then (sub {
-            $Worker->run ('process') # don't return
-                if defined $result->{process};
-            return undef;
-          });
+          return $fetch->add_fetched_task ($fetch_options);
         } else {
           return $fetch->add_fetch_task ($fetch_options);
         }
-        #XXX then, add schedule_task
       })->then (sub {
         $app->http->set_status (202);
         $class->send_json ($app, {});
-        $Worker->run ('fetch');
       });
     } elsif (@$path == 3 and $path->[2] eq 'fetched') {
       # /source/{source_id}/fetched
@@ -208,14 +141,10 @@ sub main ($$$) {
     return $app->throw_error (400, reason_phrase => 'Bad |type|')
         unless $type eq 'fetch_source';
     my $fetch = Straw::Fetch->new_from_db ($db);
-    my $result = {};
     return $fetch->save_fetch_source
         (undef,
          (json_bytes2perl ($app->bare_param ('fetch_options') // '')),
-         (json_bytes2perl ($app->bare_param ('schedule_options') // '')),
-         $result)->then (sub {
-      $Worker->run ('fetch') # don't return
-          if defined $result->{next_action_time};
+         (json_bytes2perl ($app->bare_param ('schedule_options') // '')))->then (sub {
       return $class->send_json ($app, {source_id => $_[0]});
     }, sub {
       if (ref $_[0] eq 'HASH') {
@@ -236,7 +165,6 @@ sub main ($$$) {
     return $fetch->add_fetch_task ($options)->then (sub {
       $app->http->set_status (202);
       $class->send_json ($app, {});
-      $Worker->run ('fetch');
     });
   } elsif (@$path == 2 and $path->[0] eq 'source' and $path->[1] eq 'logs') {
     # /source/logs

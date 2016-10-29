@@ -44,7 +44,7 @@ $Straw::Step->{url_suffix_filter} = {
 }; # url_suffix_filter
 
 $Straw::ItemStep->{item_url_prefix_filter} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   my $value = $step->{value};
   if (not defined $value or
       not defined $item->{0}->{props}->{url} or
@@ -55,7 +55,7 @@ $Straw::ItemStep->{item_url_prefix_filter} = sub {
 }; # item_url_prefix_filter
 
 $Straw::ItemStep->{item_url_suffix_filter} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   my $value = $step->{value};
   if (not defined $value or
       not defined $item->{0}->{props}->{url} or
@@ -106,7 +106,7 @@ $Straw::Step->{httpres_to_json} = {
 
 use Straw::Fetch; # XXX
 $Straw::ItemStep->{fetch_item_url} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   my $url = $item->{0}->{props}->{url};
   if (defined $url) {
     my $fetch = Straw::Fetch->new_from_db ($self->db); # XXX
@@ -114,7 +114,6 @@ $Straw::ItemStep->{fetch_item_url} = sub {
     $fetch->add_fetch_task ({
       url => $url,
     });
-    $result->{fetch} = 1;
   }
   return $item;
 }; # fetch_item_url
@@ -195,7 +194,7 @@ $Straw::Step->{extract_elements} = {
 }; # extract_elements
 
 $Straw::ItemStep->{set_text_prop_from_element} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
   my $el = $item->{0}->{element};
   $el = $el->query_selector ($step->{path})
@@ -217,7 +216,7 @@ $Straw::ItemStep->{set_text_prop_from_element} = sub {
 }; # set_text_prop_from_element
 
 $Straw::ItemStep->{set_html_prop_from_element} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
   my $el = $item->{0}->{element};
   $el = $el->query_selector ($step->{path})
@@ -228,7 +227,7 @@ $Straw::ItemStep->{set_html_prop_from_element} = sub {
 }; # set_html_prop_from_element
 
 $Straw::ItemStep->{set_boolean_prop_by_has_element} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
   my $el = $item->{0}->{element};
   $el = $el->query_selector ($step->{path})
@@ -238,7 +237,7 @@ $Straw::ItemStep->{set_boolean_prop_by_has_element} = sub {
 }; # set_boolean_prop_from_element_class
 
 $Straw::ItemStep->{set_url_prop_from_element} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
   my $el = $item->{0}->{element};
   $el = $el->query_selector ($step->{path})
@@ -258,7 +257,7 @@ $Straw::ItemStep->{set_url_prop_from_element} = sub {
 }; # set_url_prop_from_element
 
 $Straw::ItemStep->{set_time_prop_from_element} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   die "No |element|" unless defined $item->{0} and defined $item->{0}->{element};
   my $el = $item->{0}->{element};
   $el = $el->query_selector ($step->{path})
@@ -280,7 +279,7 @@ $Straw::ItemStep->{set_time_prop_from_element} = sub {
 }; # set_time_prop_from_element
 
 $Straw::ItemStep->{dump_to_prop_from_element} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   unless (defined $item->{0} and defined $item->{0}->{element}) {
     $item->{0}->{props}->{$step->{field}} = "No |element}";
   } else {
@@ -295,7 +294,7 @@ $Straw::ItemStep->{dump_to_prop_from_element} = sub {
 }; # dump_to_prop_from_element
 
 $Straw::ItemStep->{append_text_to_prop} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   my $value = $step->{value};
   if (defined $value) {
     $item->{0}->{props}->{$step->{field}} = ''
@@ -315,7 +314,7 @@ $Straw::Step->{dump_stream} = {
 }; # dump_stream
 
 $Straw::ItemStep->{set_key} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   my $key = $step->{field} // die "No |field| specified for the step";
   my $v = $item->{0}->{props}->{$key};
   $item->{0}->{props}->{key} = $v if defined $v and length $v;
@@ -323,7 +322,7 @@ $Straw::ItemStep->{set_key} = sub {
 }; # set_key
 
 $Straw::ItemStep->{set_key_by_template} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   my $v = $step->{template} // die "No |template| specified for the step";
   $v =~ s{\{([A-Za-z0-9_]+)\}}{$item->{0}->{props}->{$1} // ''}ge;
   $item->{0}->{props}->{key} = $v if length $v;
@@ -331,7 +330,7 @@ $Straw::ItemStep->{set_key_by_template} = sub {
 }; # set_key_by_template
 
 $Straw::ItemStep->{set_timestamp} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   my $key = $step->{field} // die "No |field| specified for the step";
   my $v = $item->{0}->{props}->{$key};
   $item->{0}->{props}->{timestamp} = 0+$v if defined $v and length $v;
@@ -339,7 +338,7 @@ $Straw::ItemStep->{set_timestamp} = sub {
 }; # set_timestamp
 
 $Straw::ItemStep->{select_props} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   my $out = {};
   my @field = (defined $step->{fields} && ref $step->{fields} eq 'ARRAY')
       ? @{$step->{fields} || []} : ();
@@ -351,7 +350,7 @@ $Straw::ItemStep->{select_props} = sub {
 }; # select_props
 
 $Straw::ItemStep->{set_if_defined} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   my @field = (defined $step->{fields} && ref $step->{fields} eq 'ARRAY')
       ? @{$step->{fields} || []} : ();
   my $src_channel = $step->{source_channel_id} // 1;
@@ -366,7 +365,7 @@ $Straw::ItemStep->{set_if_defined} = sub {
 
 #XXX
 $Straw::ItemStep->{bookmark_entry_image} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   my $v = $item->{0}->{props}->{'http://purl.org/rss/1.0/modules/content/encoded'};
   if (defined $v and @$v and length $v->[0]) {
     my $doc = new Web::DOM::Document;
@@ -382,7 +381,7 @@ $Straw::ItemStep->{bookmark_entry_image} = sub {
 }; # bookmark_entry_image
 
 $Straw::ItemStep->{cleanup_title} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
   my $v = $item->{0}->{props}->{title};
   if (defined $v) {
     $v =~ s/\s+/ /g;
@@ -435,7 +434,7 @@ $Straw::Step->{extract_array_items} = {
 }; # extract_array_items
 
 $Straw::ItemStep->{set_text_prop_by_path} = sub {
-  my ($self, $step, $item, $result) = @_;
+  my ($self, $step, $item) = @_;
 
   my $v = _get_from_object_by_path $item->{0}->{props}, $step->{path};
   $item->{0}->{props}->{$step->{field}} = $v if defined $v;

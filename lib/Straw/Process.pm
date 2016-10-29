@@ -8,7 +8,7 @@ use Dongry::Type;
 use Straw::Fetch;
 use Straw::Steps;
 
-sub new_from_db ($$) {
+sub new_from_db ($) {
   return bless {db => $_[1]}, $_[0];
 } # new_from_db
 
@@ -129,18 +129,19 @@ sub save_process ($$$) {
 } # save_process
 
 sub run_process ($$$$$) {
-  my ($self, $process_id, $process_options, $process_args, $result) = @_;
+  my ($self, $process_id, $process_options, $process_args) = @_;
   my $current = {process_id => $process_id,
                  process_options => $process_options,
                  process_args => $process_args,
                  #input_stream_id
-                 #last_updated,
-                 result => $result};
+                 #last_updated
+                 #more_input_item
+                };
   return $self->_load ($current)->then (sub {
     return $self->_steps ($current, $_[0]);
   })->then (sub {
     return $self->_save ($current, $_[0]);
-  });
+  })->then (sub { return $current->{more_input_item} });
 } # run_process
 
 sub _load ($$) {
@@ -198,7 +199,7 @@ sub _load ($$) {
         $current->{last_updated} = $_->{updated};
       }
       return unless @item_key;
-      $current->{result}->{more_input_item} = 1;
+      $current->{more_input_item} = 1;
       return $self->db->select ('stream_item_data', {
         stream_id => Dongry::Type->serialize ('text', $dest_stream_id),
         item_key => {-in => \@item_key},
@@ -241,10 +242,10 @@ sub _steps ($$$) {
         $act = {
           in_type => 'Stream',
           code => sub {
-            my ($self, $step, $input, $result) = @_;
+            my ($self, $step, $input) = @_;
             my $items = [];
             for my $item (@{$input->{items}}) {
-              push @$items, $code->($self, $step, $item, $result); # XXX promise
+              push @$items, $code->($self, $step, $item); # XXX promise
               # XXX validation
             }
             return {type => 'Stream', items => [grep { defined $_ } @$items]};
@@ -258,7 +259,7 @@ sub _steps ($$$) {
           not $act->{in_type} eq $input->{type}) {
         die "Input has different type |$input->{type}| from the expected type |$act->{in_type}|";
       }
-      return $act->{code}->($self, $step, $input, $current->{result});
+      return $act->{code}->($self, $step, $input);
     });
   }
   return $p;
@@ -304,7 +305,6 @@ sub _save ($$$) {
       return $self->db->select ('stream_subscription', {
         stream_id => Dongry::Type->serialize ('text', $stream_id),
       }, fields => ['process_id'])->then (sub {
-        $current->{result}->{process} = 1;
         return $self->add_process_task
             ([map { $_->{process_id} } @{$_[0]->all}],
              stream_id => $stream_id);
@@ -345,11 +345,10 @@ sub add_process_task ($$;%) {
   });
 } # add_process_task
 
-sub run_task ($) {
+sub run ($) {
   my $self = $_[0];
   my $db = $self->db;
   my $time = time;
-  my $result = {};
   return $db->execute ('call lock_process_task (:time)', {
     time => $time,
   })->then (sub {
@@ -368,13 +367,14 @@ sub run_task ($) {
       $process_options = Dongry::Type->parse ('json', $_[0]->{process_options});
     });
     my @task_id;
+    my $has_more = 0;
     for my $data (@data) { # any $data in @data has $same $data->{process_id}
       my $args = Dongry::Type->parse ('json', $data->{process_args});
       $p = $p->then (sub {
         local $self->{debug_process_id} = $process_id;
-        return $self->run_process
-            ($process_id, $process_options, $args, $result);
+        return $self->run_process ($process_id, $process_options, $args);
       })->then (sub {
+        $has_more = 1 if $_[0];
         return Promise->all ($self->{promises} || []);
       })->then (sub {
         return $self->error
@@ -396,8 +396,7 @@ sub run_task ($) {
       push @task_id, $data->{task_id};
     }
     return $p->then (sub {
-      $result->{continue} = 1;
-      if ($result->{more_input_item}) {
+      if ($has_more) {
         return $db->update ('process_task', {
           running_since => 0,
           run_after => time,
@@ -412,10 +411,8 @@ sub run_task ($) {
         });
       }
     });
-  })->then (sub {
-    return $result;
   });
-} # run_task
+} # run
 
 sub error ($%) {
   my ($self, %args) = @_;

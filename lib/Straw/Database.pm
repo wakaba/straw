@@ -1,14 +1,26 @@
-# -*- perl -*-
+package Straw::Database;
 use strict;
 use warnings;
-use Straw::Web;
-use Straw::Worker; # background
+use Path::Tiny;
+use Dongry::Type;
+use Dongry::Type::JSONPS;
+use Dongry::Database;
 
-$ENV{LANG} = 'C';
-$ENV{TZ} = 'UTC';
-$Wanage::HTTP::UseXForwardedScheme = 1 if $ENV{APP_WITH_RPROXY};
+my $config_path = path ($ENV{APP_CONFIG} // die "Bad |APP_CONFIG|");
 
-return Straw::Web->psgi_app;
+our $Config = Dongry::Type->parse ('json', $config_path->slurp);
+our $Sources = {
+  master => {
+    dsn => Dongry::Type->serialize ('text', $Config->{alt_dsns}->{master}->{straw}),
+    writable => 1, anyevent => 1,
+  },
+  default => {
+    dsn => Dongry::Type->serialize ('text', $Config->{dsns}->{straw}),
+    anyevent => 1,
+  },
+}; # $Sources
+
+1;
 
 =head1 LICENSE
 

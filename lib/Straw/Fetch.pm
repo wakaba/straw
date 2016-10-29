@@ -10,8 +10,9 @@ use Promise;
 use Web::UserAgent::Functions qw(http_get http_post);
 use Wanage::URL;
 use Straw::Process;
+use Straw::JobScheduler;
 
-sub new_from_db ($$) {
+sub new_from_db ($) {
   return bless {db => $_[1]}, $_[0];
 } # new_from_db
 
@@ -45,8 +46,8 @@ sub serialize_fetch ($) {
   return ($fetch_key, $fetch_options, $origin_key);
 } # serialize_fetch
 
-sub save_fetch_source ($$$$$) {
-  my ($self, $source_id, $fetch_options, $schedule_options, $result) = @_;
+sub save_fetch_source ($$$$) {
+  my ($self, $source_id, $fetch_options, $schedule_options) = @_;
   return Promise->reject ({status => 400, reason => "Bad |fetch_options|"})
       unless defined $fetch_options and ref $fetch_options eq 'HASH';
   return Promise->reject ({status => 400, reason => "Bad |schedule_options|"})
@@ -55,13 +56,15 @@ sub save_fetch_source ($$$$$) {
   my $origin_key;
   ($fetch_key, $fetch_options, $origin_key) = serialize_fetch $fetch_options;
   my $p = Promise->resolve;
+  my $old_fetch_key;
   if (defined $source_id) {
     $p = $p->then (sub {
       return $self->db->select ('fetch_source', {
         source_id => Dongry::Type->serialize ('text', $source_id),
-      }, fields => ['source_id'])->then (sub {
-        die {status => 404, reason => 'Fetch source not found'}
-            unless $_[0]->first;
+      }, fields => ['source_id', 'fetch_key'])->then (sub {
+        my $f = $_[0]->first;
+        die {status => 404, reason => 'Fetch source not found'} unless $f;
+        $old_fetch_key = $f->{fetch_key};
       });
     });
   } else {
@@ -80,7 +83,10 @@ sub save_fetch_source ($$$$$) {
       schedule_options => Dongry::Type->serialize ('json', $schedule_options),
     }], duplicate => 'replace');
   })->then (sub {
-    return $self->schedule_next_fetch_task ($fetch_key, $result);
+    return $self->schedule_next_fetch_task ($fetch_key);
+  })->then (sub {
+    return $self->schedule_next_fetch_task ($old_fetch_key)
+        if defined $old_fetch_key and not $fetch_key eq $old_fetch_key;
   })->then (sub {
     return ''.$source_id;
   });
@@ -102,52 +108,36 @@ sub add_fetch_task ($$;%) {
   });
 } # add_fetch_task
 
-sub add_fetched_task ($$$) {
-  my ($self, $fetch_options, $result) = @_;
+sub add_fetched_task ($$) {
+  my ($self, $fetch_options) = @_;
   my $fetch_key;
   ($fetch_key, undef, undef) = serialize_fetch $fetch_options;
   my ($url, $origin_key) = $self->_prepare_fetch ($fetch_options);
-  return $self->_onfetch ($fetch_key, $origin_key, $result);
+  return $self->_onfetch ($fetch_key, $origin_key);
 } # add_fetched_task
 
-sub schedule_next_fetch_task ($$$) {
-  my ($self, $fetch_key, $result) = @_;
+sub schedule_next_fetch_task ($$) {
+  my ($self, $fetch_key) = @_;
   return $self->db->select ('fetch_source', {
     fetch_key => Dongry::Type->serialize ('text', $fetch_key),
   }, fields => ['fetch_options', 'schedule_options'])->then (sub {
     my @all = @{$_[0]->all};
 
-    my $every;
-    if (@all) {
-      my @schedule_options = map {
-        Dongry::Type->parse ('json', $_->{schedule_options});
-      } @all;
+    my @schedule_options = map {
+      Dongry::Type->parse ('json', $_->{schedule_options});
+    } @all;
 
-      for my $options (@schedule_options) {
-        if (defined $options->{every_seconds}) {
-          $every = $options->{every_seconds}
-              if not defined $every or
-                  $every > $options->{every_seconds};
-        }
-      }
-    }
-
-    unless (defined $every) {
-      return $self->db->delete ('fetch_task', {
-        fetch_key => Dongry::Type->serialize ('text', $fetch_key),
-        running_since => {'!=', 0},
-      });
-    } else {
-      my $fetch_options = Dongry::Type->parse
-          ('json', $all[0]->{fetch_options});
-      $every = 1 if $every < 1;
-      return $self->add_fetch_task
-          ($fetch_options, delta => $every, result => $result);
-    }
+    my $key = "fetch:$fetch_key";
+    my $js = Straw::JobScheduler->new_from_db ($self->db);
+    return $js->insert_job ($key, {
+      type => 'fetch_task',
+      fetch_key => $fetch_key,
+      fetch_options => @all ? Dongry::Type->parse ('json', $all[0]->{fetch_options}) : {},
+    }, \@schedule_options, first => 1);
   });
 } # schedule_next_fetch_task
 
-sub run_task ($) {
+sub run ($) {
   my $self = $_[0];
   my $db = $self->db;
   my $time = time;
@@ -168,27 +158,15 @@ sub run_task ($) {
       return $p = $p->then (sub {
         return $self->fetch ($data->{fetch_key}, $options, $result);
       })->then (sub {
-        $result->{continue} = 1;
-        return $db->update ('fetch_task', {
-          run_after => $time + 10*500*24*60*60,
-        }, where => {
+        return $db->delete ('fetch_task', {
           fetch_key => Dongry::Type->serialize ('text', $data->{fetch_key}),
           running_since => $time,
-        })->then (sub {
-          return $self->schedule_next_fetch_task ($data->{fetch_key}, {});
         });
       });
     }
     return $p;
-  })->then (sub {
-    return $db->execute ('select run_after from fetch_task order by run_after asc limit 1')->then (sub {
-      my $d = $_[0]->first;
-      $result->{next_action_time} = $d->{run_after} if defined $d;
-      return $result;
-    }) unless $result->{continue};
-    return $result;
   });
-} # run_task
+} # run
 
 sub _prepare_fetch ($$) {
   my ($self, $options) = @_;
@@ -305,13 +283,12 @@ sub fetch ($$$$) {
   });
 } # fetch
 
-sub _onfetch ($$$$) {
-  my ($self, $fetch_key, $origin_key, $result) = @_;
+sub _onfetch ($$$) {
+  my ($self, $fetch_key, $origin_key) = @_;
   my $process = Straw::Process->new_from_db ($self->db);
   return $self->db->select ('strict_fetch_subscription', {
     fetch_key => Dongry::Type->serialize ('text', $fetch_key),
   }, fields => ['process_id'])->then (sub {
-    $result->{process} = 1;
     return $process->add_process_task
         ([map { $_->{process_id} } @{$_[0]->all}], fetch_key => $fetch_key);
   })->then (sub {
@@ -319,7 +296,6 @@ sub _onfetch ($$$$) {
     return $self->db->select ('origin_fetch_subscription', {
       origin_key => Dongry::Type->serialize ('text', $origin_key),
     }, fields => ['process_id'])->then (sub {
-      $result->{process} = 1;
       return $process->add_process_task
           ([map { $_->{process_id} } @{$_[0]->all}],
            fetch_key => $fetch_key);

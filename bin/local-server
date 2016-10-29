@@ -3,31 +3,27 @@ use strict;
 use warnings;
 use Path::Tiny;
 use lib glob path (__FILE__)->parent->parent->child ('t_deps/modules/promised-*/lib');
-use AnyEvent;
 use Promise;
 use Promised::File;
-use Promised::Plackup;
 use Promised::Mysqld;
+use Promised::Command;
 use Promised::Command::Signals;
 use JSON::PS;
 
 $ENV{SQL_DEBUG} //= 1;
 $ENV{WEBUA_DEBUG} //= 1;
+$ENV{WEBSERVER_DEBUG} //= 1;
 
 my $root_path = path (__FILE__)->parent->parent->absolute;
 my $config_path = $root_path->child ('local/local-server/config/config.json');
 my $config_file = Promised::File->new_from_path ($config_path);
 
-my $main_cv = AE::cv;
-
 my $mysqld = Promised::Mysqld->new;
-my $plackup = Promised::Plackup->new;
-
-my $done = sub {
-  return Promise->all ([$plackup->stop, $mysqld->stop]);
-};
-Promised::Command::Signals->add_handler (INT => $done);
-Promised::Command::Signals->add_handler (TERM => $done);
+my $sarze_server = Promised::Command->new
+    ([$root_path->child ('perl'),
+      $root_path->child ('bin/sarze-server.pl'),
+      5150]);
+$sarze_server->propagate_signal (1);
 
 my $db_dir = $root_path->child ('local/local-server/mysql');
 $db_dir->mkpath;
@@ -52,19 +48,13 @@ $mysqld->start->then (sub {
     }),
   ]);
 })->then (sub {
-  $plackup->envs->{APP_CONFIG} = $config_path;
-  $plackup->plackup ($root_path->child ('plackup'));
-  $plackup->set_option ('--app' => $root_path->child ('bin/server.psgi'));
-  $plackup->set_option ('--host' => 0);
-  $plackup->set_option ('--port' => 5150);
-  $plackup->set_server ('Twiggy');
-  return $plackup->start;
+  $sarze_server->envs->{APP_CONFIG} = $config_path;
+  return $sarze_server->run->then (sub {
+    return $sarze_server->wait;
+  });
 })->catch (sub {
   my $error = $_[0];
-  AE::log alert => "$error";
-  return Promise->resolve->then ($done)->then (sub {
-    $main_cv->croak;
-  });
-});
+  warn "$$: Error: $error\n";
+})->to_cv->recv;
 
-$main_cv->recv;
+$mysqld->stop->to_cv->recv;
