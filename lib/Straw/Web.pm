@@ -2,12 +2,8 @@ package Straw::Web;
 use strict;
 use warnings;
 use Path::Tiny;
-use AnyEvent;
-use AnyEvent::Handle;
-use AnyEvent::Fork;
 use Promise;
 use Promised::File;
-use Promised::Command::Signals;
 use JSON::PS;
 use Wanage::HTTP;
 use Warabe::App;
@@ -17,90 +13,15 @@ use Straw::Stream;
 use Straw::Process;
 use Straw::Sink;
 use Straw::Database;
-use Straw::JobScheduler;
 
 my $Config = $Straw::Database::Config;
 
 my $IndexFile = Promised::File->new_from_path
     (path (__FILE__)->parent->parent->parent->child ('index.html'));
 
-my $Signals = {};
-my $Shutdowning = 0;
-my $Shutdown = sub { };
-
 sub psgi_app ($) {
   my ($class) = @_;
-
-  {
-    $Signals->{TERM} = Promised::Command::Signals->add_handler (TERM => sub {
-      %$Signals = ();
-      $Shutdowning = 1;
-      $Shutdown->();
-    });
-    $Signals->{INT} = Promised::Command::Signals->add_handler (INT => sub {
-      %$Signals = ();
-      $Shutdowning = 1;
-      $Shutdown->();
-    });
-    $Signals->{QUIT} = Promised::Command::Signals->add_handler (QUIT => sub {
-      %$Signals = ();
-      $Shutdowning = 1;
-      $Shutdown->();
-    });
-  }
-
-  {
-    my $CleanupInterval = 60*60;
-    my $db = Dongry::Database->new (sources => $Straw::Database::Sources);
-    my $js = Straw::JobScheduler->new_from_db ($db);
-    $js->insert_job ("Straw::Expire", {
-      type => 'expire_task',
-    }, [{every_seconds => $CleanupInterval}]);
-  }
-
-  {
-    my $fork = AnyEvent::Fork->new;
-    $fork->require ('Straw::Worker');
-    $fork->run ('Straw::Worker::main', sub {
-      my $fh = $_[0];
-      my $rbuf = '';
-      my $hdl; $hdl = AnyEvent::Handle->new
-          (fh => $fh,
-           on_read => sub {
-             $rbuf .= $_[0]->{rbuf};
-             $_[0]->{rbuf} = '';
-             while ($rbuf =~ s/^([^\x0A]*)\x0A//) {
-               my $line = $1;
-               #$self->log ("Broken command from worker process: |$line|");
-             }
-           },
-           on_error => sub {
-             $_[0]->destroy;
-             undef $hdl;
-           },
-           on_eof => sub {
-             $_[0]->destroy;
-             undef $hdl;
-           });
-      if ($Shutdowning) {
-        $hdl->push_write ("shutdown\x0A");
-      } else {
-        $Shutdown = sub { $hdl->push_write ("shutdown\x0A") };
-      }
-    });
-  }
-  # XXX restart if child failed
-  # XXX report child's fatal error to somewhere
-
   return sub {
-    ## This is necessary so that different forked siblings have
-    ## different seeds.
-    srand;
-
-    ## XXX Parallel::Prefork (?)
-    delete $SIG{CHLD};
-    delete $SIG{CLD};
-
     my $http = Wanage::HTTP->new_from_psgi_env ($_[0]);
     my $app = Warabe::App->new_from_http ($http);
 

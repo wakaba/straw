@@ -7,7 +7,7 @@ test:
   override:
     - make test
     - echo '{}' > config.json
-    - APP_CONFIG=config.json ./plackup -p 5114 -t Twiggy::Prefork bin/server.psgi :
+    - APP_CONFIG=config.json ./perl bin/sarze-server.pl 5114 :
         background: true
     - sleep 10
     - curl http://localhost:5114

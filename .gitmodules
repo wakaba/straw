@@ -66,10 +66,6 @@
 	path = modules/promised-file
 	url = https://github.com/wakaba/perl-promised-file
 	track = master
-[submodule "t_deps/modules/promised-plackup"]
-	path = t_deps/modules/promised-plackup
-	url = https://github.com/wakaba/perl-promised-plackup
-	track = master
 [submodule "modules/twiggy-packed"]
 	path = modules/twiggy-packed
 	url = https://github.com/wakaba/perl-twiggy-packed

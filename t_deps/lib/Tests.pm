@@ -6,16 +6,19 @@ use lib glob path (__FILE__)->parent->parent->parent->child ('t_deps/modules/*/l
 use File::Temp;
 use AnyEvent;
 use Promise;
+use Promised::Flow;
 use Promised::File;
-use Promised::Plackup;
 use Promised::Mysqld;
 use Time::HiRes qw(time);
 use JSON::PS;
 use MIME::Base64;
 use Web::UserAgent::Functions qw(http_post http_get);
 use Wanage::URL;
+use Web::URL;
+use Web::Transport::ConnectionClient;
 use Test::More;
 use Test::X1;
+use Sarze;
 
 our @EXPORT;
 
@@ -38,19 +41,48 @@ my $RemoteServer;
 
 my $root_path = path (__FILE__)->parent->parent->parent->absolute;
 
+{
+  use Socket;
+  my $EphemeralStart = 1024;
+  my $EphemeralEnd = 5000;
+
+  sub is_listenable_port ($) {
+    my $port = $_[0];
+    return 0 unless $port;
+    
+    my $proto = getprotobyname('tcp');
+    socket(my $server, PF_INET, SOCK_STREAM, $proto) || die "socket: $!";
+    setsockopt($server, SOL_SOCKET, SO_REUSEADDR, pack("l", 1)) || die "setsockopt: $!";
+    bind($server, sockaddr_in($port, INADDR_ANY)) || return 0;
+    listen($server, SOMAXCONN) || return 0;
+    close($server);
+    return 1;
+  } # is_listenable_port
+
+  my $using = {};
+  sub find_listenable_port () {
+    for (1..10000) {
+      my $port = int rand($EphemeralEnd - $EphemeralStart);
+      next if $using->{$port}++;
+      return $port if is_listenable_port $port;
+    }
+    die "Listenable port not found";
+  } # find_listenable_port
+}
+
 push @EXPORT, qw(origin_of);
 sub origin_of ($) {
   return Wanage::URL->new_from_string ($_[0] // '')->ascii_origin; # or undef
 } # origin_of
 
-sub remote_server (;$) {
-  my $web_host = $_[0];
-  my $cv = AE::cv;
-  $RemoteServer = Promised::Plackup->new;
-  $RemoteServer->set_option ('--server' => 'Twiggy');
-  $RemoteServer->plackup ($root_path->child ('plackup'));
-  $RemoteServer->set_option ('--host' => $web_host) if defined $web_host;
-  $RemoteServer->set_option ('-e' => q{
+{
+my $RemoteHostport;
+sub remote_server () {
+  my $port = find_listenable_port;
+  return Sarze->start (
+    hostports => [['127.0.0.1', $port]],
+    max_worker_count => 1,
+    eval => q{
     use strict;
     use warnings;
     use Wanage::HTTP;
@@ -61,7 +93,7 @@ sub remote_server (;$) {
 
     my $Data = {};
 
-    return sub {
+    sub psgi_app {
       my $http = Wanage::HTTP->new_from_psgi_env ($_[0]);
       my $app = Warabe::App->new_from_http ($http);
       return $app->execute_by_promise (sub {
@@ -91,34 +123,40 @@ sub remote_server (;$) {
         return $app->send_error (404, reason_phrase => 'URL not registered');
       });
     };
+    },
+  )->then (sub {
+    $RemoteServer = $_[0];
+    $RemoteHostport = "localhost:$port";
   });
-  return $RemoteServer;
 } # remote_server
 
 sub remote_url ($) {
-  my $host = $RemoteServer->get_host;
-  return qq<http://$host$_[0]>;
+  return qq<http://$RemoteHostport$_[0]>;
 } # remote_url
+}
 
 push @EXPORT, qw(web_server);
 sub web_server (;@) {
-  my $web_host = @_ == 1 ? shift : undef;
   my %args = @_;
-  my $cv = AE::cv;
   my $bearer = rand;
   $MySQLServer = Promised::Mysqld->new;
-  remote_server;
-  Promise->all ([
+  my $http_port = find_listenable_port;
+  my $url = Web::URL->parse_string ("http://localhost:$http_port");
+  return Promise->all ([
     $MySQLServer->start,
-    $RemoteServer->start,
+    remote_server,
   ])->then (sub {
     my $dsn = $MySQLServer->get_dsn_string (dbname => 'straw_test');
     $MySQLServer->{_temp} = my $temp = File::Temp->newdir;
     my $temp_dir_path = path ($temp)->absolute;
     my $temp_path = $temp_dir_path->child ('file');
     my $temp_file = Promised::File->new_from_path ($temp_path);
-    $HTTPServer = Promised::Plackup->new;
-    $HTTPServer->set_option ('--server' => 'Twiggy');
+
+    $HTTPServer = Promised::Command->new
+        ([$root_path->child ('perl'),
+          $root_path->child ('bin/sarze-server.pl'),
+          $http_port]);
+    $HTTPServer->propagate_signal (1);
     $HTTPServer->envs->{APP_CONFIG} = $temp_path;
     $HTTPServer->envs->{STRAW_WORKER_INTERVAL} = $args{worker_interval} || 5;
     $HTTPServer->envs->{http_proxy} = remote_url q<>;
@@ -140,27 +178,37 @@ sub web_server (;@) {
       }),
     ]);
   })->then (sub {
-    $HTTPServer->plackup ($root_path->child ('plackup'));
-    $HTTPServer->set_option ('--host' => $web_host) if defined $web_host;
-    $HTTPServer->set_option ('--app' => $root_path->child ('bin/server.psgi'));
-    return $HTTPServer->start;
+    return $HTTPServer->run;
   })->then (sub {
-    $cv->send ({host => $HTTPServer->get_host});
-  });
-  return $cv;
+    my $client = Web::Transport::ConnectionClient->new_from_url ($url);
+    return promised_wait_until {
+      return promised_timeout {
+        return $client->request (path => ['ping'])->then (sub {
+          return not $_[0]->is_network_error;
+        }, sub { return 0 });
+      } 10;
+    } interval => 0.3;
+  })->then (sub {
+    return {host => $url->hostport};
+  })->to_cv;
 } # web_server
 
 push @EXPORT, qw(stop_web_server);
 sub stop_web_server () {
-  my $cv = AE::cv;
-  $cv->begin;
-  for ($HTTPServer, $MySQLServer, $RemoteServer) {
-    next unless defined $_;
-    $cv->begin;
-    $_->stop->then (sub { $cv->end });
-  }
-  $cv->end;
-  $cv->recv;
+  (promised_cleanup {
+    undef $HTTPServer;
+    undef $MySQLServer;
+    undef $RemoteServer;
+  } Promise->all ([
+    do {
+      if (defined $HTTPServer) {
+        $HTTPServer->send_signal ('TERM');
+        $HTTPServer->wait;
+      }
+    },
+    (defined $MySQLServer ? $MySQLServer->stop : undef),
+    (defined $RemoteServer ? $RemoteServer->stop : undef),
+  ]))->to_cv->recv;
 } # stop_web_server
 
 push @EXPORT, qw(GET);
@@ -310,7 +358,6 @@ push @EXPORT, qw(remote);
 sub remote ($$) {
   my ($c, $eps) = @_;
   my $p = Promise->resolve;
-  my $host = $RemoteServer->get_host;
   my $dir_path = q</> . rand . q</>;
   my $origin_prefix = q<http://test> . rand;
   my $result = {};
@@ -322,7 +369,7 @@ sub remote ($$) {
     if (defined $body and ref $body eq 'ARRAY') {
       ($headers, $body, $opts) = @$body;
     }
-    my $origin = qq{http://$host};
+    my $origin =remote_url '';
     if (defined $opts->{origin}) {
       $origin = qq{$origin_prefix.$opts->{origin}};
     }
@@ -331,7 +378,7 @@ sub remote ($$) {
       return Promise->new (sub {
         my ($ok, $ng) = @_;
         http_post
-            url => qq{http://$host$path},
+            url => remote_url $path,
             params => {headers => (perl2json_chars $headers),
                        body => (encode_base64 $body)},
             timeout => 60,
@@ -351,7 +398,7 @@ sub remote ($$) {
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

@@ -2,6 +2,7 @@
 use strict;
 use warnings;
 use Straw::Web;
+use Straw::Worker; # background
 
 $ENV{LANG} = 'C';
 $ENV{TZ} = 'UTC';
@@ -11,7 +12,7 @@ return Straw::Web->psgi_app;
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as

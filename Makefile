@@ -37,7 +37,6 @@ pmbp-install: pmbp-upgrade
 	perl local/bin/pmbp.pl $(PMBP_OPTIONS) --install \
             --create-perl-command-shortcut @perl \
             --create-perl-command-shortcut @prove \
-            --create-perl-command-shortcut @plackup=perl\ modules/twiggy-packed/script/plackup \
 	    --create-perl-command-shortcut local-server=bin/local-server
 
 create-commit-for-heroku:

@@ -13,66 +13,70 @@ use Straw::Process;
 
 my $ProcessInterval = $ENV{STRAW_WORKER_INTERVAL} || 60;
 
-sub main ($) {
-  my $fh = shift;
+sub start ($) {
+  my $self = bless {}, $_[0];
 
   my $db = Dongry::Database->new (sources => $Straw::Database::Sources);
 
+  my %stop_timer;
   my $done = 0;
-  my $signals = {};
-  my $shutdown = sub {
+  $self->{shutdown} = sub {
     $done = 1;
-    undef $signals;
+    for (grep { defined } values %stop_timer) {
+      $_->(0);
+    }
+    $self->{shutdown} = sub {};
   }; # $shutdown
-
-  for my $signal (qw(INT TERM QUIT)) {
-    $signals->{$signal} = AE::signal $signal => $shutdown;
-  }
-
-  my $hdl = AnyEvent::Handle->new
-      (fh => $fh,
-       on_read => sub {
-         while ($_[0]->{rbuf} =~ s/^([^\x0A]*)\x0A//) {
-           my $line = $1;
-           if ($line =~ /\Ashutdown\z/) {
-             $shutdown->();
-           } else {
-             #XXX $wp->log ("Broken command from main process: |$line|");
-           }
-         }
-       },
-       on_eof => sub { $_[0]->destroy },
-       on_error => sub { $_[0]->destroy });
 
   my @p;
   my %run;
+  my %timer;
   for my $class (qw(
     Straw::JobScheduler
     Straw::Fetch
     Straw::Process
   )) {
-    my $self = $class->new_from_db ($db);
+    my $obj = $class->new_from_db ($db);
     $run{$class} = sub {
-      return $self->run->then (sub {
+      return unless $_[0];
+      return $obj->run->then (sub {
         return if $done;
         if ($_[0]) {
-          return $run{$class}->();
+          return $run{$class}->(1);
         } else {
-          return promised_sleep ($ProcessInterval)->then ($run{$class});
+          return Promise->new (sub {
+            my $done = $_[0];
+            $timer{$class} = AE::timer $ProcessInterval, 0, sub {
+              $done->(1);
+              delete $timer{$class};
+            };
+            $stop_timer{$class} = $done;
+          })->then ($run{$class});
         }
       });
     }; # $run{$class}
-    push @p, $run{$class}->();
+    push @p, $run{$class}->(1);
   }
 
-  (promised_cleanup {
+  $self->{completed} = promised_cleanup {
     %run = ();
-    $shutdown->();
+    %timer = ();
+    %stop_timer = ();
     return $db->disconnect;
-  } Promise->all (\@p))->to_cv->recv;
+  } promised_cleanup {
+    return $self->{shutdown}->();
+  } Promise->all (\@p);
 
-  close $fh;
-} # main
+  return Promise->resolve ($self);
+} # start
+
+sub stop ($) {
+  $_[0]->{shutdown}->();
+} # stop
+
+sub completed ($) {
+  return $_[0]->{completed};
+} # completed
 
 1;
 
