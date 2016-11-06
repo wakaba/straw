@@ -266,6 +266,12 @@ sub main ($$$) {
       return $sink->get_sink_ids_by_stream_id ($path->[1])->then (sub {
         return $class->send_json ($app, {items => $_[0]});
       });
+    } elsif (@$path == 3 and $path->[2] eq 'reset') {
+      # /stream/{stream_id}/reset
+      my $stream = Straw::Stream->new_from_db ($db);
+      return $stream->reset_stream_subscription ($path->[1])->then (sub {
+        return $class->send_json ($app, {});
+      });
     }
   } elsif (@$path == 1 and $path->[0] eq 'stream') {
     # /stream
