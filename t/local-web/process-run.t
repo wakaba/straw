@@ -468,11 +468,11 @@ test {
       my $json = json_bytes2perl $res->content;
       is 0+@{$json->{items}}, 2;
       my $items = [sort { $b->{data}->{url} cmp $a->{data}->{url} } @{$json->{items}}];
-      my $item1 = $json->{items}->[0];
+      my $item1 = $items->[0];
       is $item1->{data}->{url}, q<https://url/item/2>;
       is $item1->{data}->{title}, q<Feed Entry 2>;
       is $item1->{data}->{desc_text}, q{This is Feed Entry 2};
-      my $item2 = $json->{items}->[1];
+      my $item2 = $items->[1];
       is $item2->{data}->{url}, q<https://url/item/1>;
       is $item2->{data}->{title}, q<Feed Entry 1>;
       is $item2->{data}->{desc_text}, q{This is Feed Entry 1};
