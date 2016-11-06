@@ -268,6 +268,8 @@ sub main ($$$) {
       });
     } elsif (@$path == 3 and $path->[2] eq 'reset') {
       # /stream/{stream_id}/reset
+      $app->requires_request_method ({POST => 1});
+      # XXX CSRF
       my $stream = Straw::Stream->new_from_db ($db);
       return $stream->reset_stream_subscription ($path->[1])->then (sub {
         return $class->send_json ($app, {});
