@@ -32,8 +32,10 @@ create table if not exists `fetch_result` (
   `fetch_key` binary(80) not null,
   `fetch_options` mediumblob not null,
   `result` mediumblob not null,
+  `timestamp` double not null,
   `expires` double not null,
   primary key (`fetch_key`),
+  key (`timestamp`),
   key (`expires`)
 ) default charset=binary engine=innodb;
 

@@ -120,15 +120,17 @@ sub main ($$$) {
         return $app->throw_error (404, source_name => 'Fetch source not found')
             unless defined $source;
         return $fetch->load_fetch_result ($source->{fetch_key})->then (sub {
+          my $result = $_[0];
           return $app->send_error (404, reason_phrase => 'No fetch result')
-              unless defined $_[0];
+              unless defined $result;
           $app->http->set_response_header
               ('Content-Type' => 'message/http');
           $app->http->set_response_header
               ('Content-Disposition' => 'attachment');
           $app->http->set_response_header
               ('Content-Security-Policy' => 'sandbox');
-          $app->http->send_response_body_as_ref (\($_[0]->[1]));
+          $app->http->set_response_last_modified ($result->{timestamp});
+          $app->http->send_response_body_as_ref (\($result->{result}));
           return $app->http->close_response_body;
         });
       });
