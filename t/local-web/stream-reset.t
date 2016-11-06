@@ -25,7 +25,7 @@ test {
           <description>@@TIME@@</description>
           <dc:date>2015-12-01T11:46:23+09:00</dc:date>
         </item>
-      </rdf:RDF>
+      </rss>
     }],
   })->then (sub {
     return create_source ($c,
@@ -108,7 +108,7 @@ test {
           <description>@@TIME@@</description>
           <dc:date>2015-12-01T11:46:23+09:00</dc:date>
         </item>
-      </rdf:RDF>
+      </rss>
     }],
   })->then (sub {
     return create_source ($c,
