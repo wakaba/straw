@@ -304,6 +304,29 @@ $Straw::ItemStep->{append_text_to_prop} = sub {
   return $item;
 }; # append_text_to_prop
 
+$Straw::ItemStep->{delete_substring} = sub {
+  my ($self, $step, $item) = @_;
+
+  my $props = $item->{0}->{props};
+  my $value = $props->{$step->{field}};
+  return $item unless defined $value;
+
+  die "|regexp| not specified" unless defined $step->{regexp};
+  my $dest = $step->{dest_fields} || [];
+  my $regexp = qr/$step->{regexp}/;
+  $value =~ s{$regexp}{
+    for my $i (0..$#$dest) {
+      next unless defined $dest->[$i];
+      $props->{$dest->[$i]} = substr $value, $-[$i], $+[$i]-$-[$i]
+          if defined $+[$i];
+    }
+    '';
+  }e;
+  $props->{$step->{field}} = $value;
+
+  return $item;
+}; # delete_substring
+
 $Straw::Step->{dump_stream} = {
   in_type => 'Stream',
   code => sub {

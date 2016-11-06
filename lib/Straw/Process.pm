@@ -331,7 +331,7 @@ sub add_process_task ($$;%) {
       {fetch_key => $args{fetch_key},
        stream_id => $args{stream_id}};
   my $process_args_key = sha1_hex $process_args;
-  my $run_after = time + ($args{delta} || 0); # XXX duplicate vs run_after
+  my $run_after = time + ($args{delta} || 0);
   return $self->db->insert ('process_task', [map { {
     task_id => $self->db->bare_sql_fragment ('uuid_short ()'),
     process_id => Dongry::Type->serialize ('text', $_),

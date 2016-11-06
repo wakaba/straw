@@ -13,6 +13,7 @@ use JSON::PS;
 $ENV{SQL_DEBUG} //= 1;
 $ENV{WEBUA_DEBUG} //= 1;
 $ENV{WEBSERVER_DEBUG} //= 1;
+$ENV{STRAW_WORKER_INTERVAL} //= 5;
 
 my $root_path = path (__FILE__)->parent->parent->absolute;
 my $config_path = $root_path->child ('local/local-server/config/config.json');
@@ -39,6 +40,7 @@ $mysqld->start->then (sub {
     Promised::File->new_from_path ($root_path->child ('db/straw-procedures.sql'))->read_byte_string->then (sub {
       return [grep { length } split /^\@\@\@\@$/m, $_[0]];
     })->then (sub {
+# XXX run if not exists
 #      $mysqld->create_db_and_execute_sqls (straw_test => $_[0]);
     }),
     $config_file->write_byte_string (perl2json_bytes {
