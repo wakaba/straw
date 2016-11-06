@@ -329,13 +329,12 @@ sub main ($$$) {
             (stream_id => $data->{stream_id},
              channel_id => $data->{channel_id},
              after => $after)->then (sub {
-          my $items = $_[0];
-          my $next_after = @$items ? $items->[-1]->{timestamp} : $after;
+          my $data = $_[0];
           return $class->send_json ($app, {
-            next_after => $next_after,
+            next_after => $data->{next_after},
             next_url => $app->http->url->resolve_string
-                ('items?after=' . $next_after)->stringify,
-            items => $items,
+                ('items?after=' . $data->{next_after})->stringify,
+            items => $data->{items},
           });
         });
       });

@@ -297,11 +297,11 @@ sub _save ($$$) {
   } reverse @{$input->{items}});
   return Promise->resolve->then (sub {
     return unless @insert;
-    return $self->db->insert ('stream_item_data', \@insert, duplicate => {
+    return $self->db->insert ('stream_item_data', \@insert, duplicate => [
+      updated => $self->db->bare_sql_fragment ('if (data = values(data), updated, VALUES(updated))'),
       data => $self->db->bare_sql_fragment ('VALUES(data)'),
       timestamp => $self->db->bare_sql_fragment ('VALUES(timestamp)'),
-      updated => $self->db->bare_sql_fragment ('if (data != values(data), VALUES(updated), updated)'),
-    })->then (sub {
+    ])->then (sub {
       return $self->db->select ('stream_subscription', {
         stream_id => Dongry::Type->serialize ('text', $stream_id),
       }, fields => ['process_id'])->then (sub {
