@@ -383,7 +383,7 @@ sub main ($$$) {
     });
   }
 
-  return $app->send_error (404);
+  return $app->send_error (404, reason_phrase => 'Request target not found');
 } # main
 
 sub send_json ($$$) {
