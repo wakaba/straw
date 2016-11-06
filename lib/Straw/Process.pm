@@ -154,8 +154,8 @@ sub _load ($$) {
           unless defined $_[0];
       require HTTP::Response;
       return {type => 'HTTP::Response',
-              res => HTTP::Response->parse ($_[0]->[1]),
-              url => $_[0]->[0]->{url}, # XXX if url is computed...
+              res => HTTP::Response->parse ($_[0]->{result}),
+              url => $_[0]->{fetch_options}->{url}, # XXX if url is computed...
              };
     });
   } elsif (defined $current->{process_args}->{stream_id}) {
@@ -297,11 +297,11 @@ sub _save ($$$) {
   } reverse @{$input->{items}});
   return Promise->resolve->then (sub {
     return unless @insert;
-    return $self->db->insert ('stream_item_data', \@insert, duplicate => {
+    return $self->db->insert ('stream_item_data', \@insert, duplicate => [
+      updated => $self->db->bare_sql_fragment ('if (data = values(data), updated, VALUES(updated))'),
       data => $self->db->bare_sql_fragment ('VALUES(data)'),
       timestamp => $self->db->bare_sql_fragment ('VALUES(timestamp)'),
-      updated => $self->db->bare_sql_fragment ('if (data != values(data), VALUES(updated), updated)'),
-    })->then (sub {
+    ])->then (sub {
       return $self->db->select ('stream_subscription', {
         stream_id => Dongry::Type->serialize ('text', $stream_id),
       }, fields => ['process_id'])->then (sub {

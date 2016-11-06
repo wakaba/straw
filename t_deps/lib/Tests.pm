@@ -215,10 +215,11 @@ push @EXPORT, qw(GET);
 sub GET ($$) {
   my ($c, $url) = @_;
   my $host = $c->received_data->{host};
+  $url = qq{http://$host$url} unless $url =~ m{^https?:};
   return Promise->new (sub {
     my ($ok, $ng) = @_;
     http_get
-        url => qq{http://$host$url},
+        url => $url,
         basic_auth => [key => 'test'],
         timeout => 60,
         anyevent => 1,
@@ -233,10 +234,11 @@ push @EXPORT, qw(POST);
 sub POST ($$$) {
   my ($c, $url, $params) = @_;
   my $host = $c->received_data->{host};
+  $url = qq{http://$host$url} unless $url =~ m{^https?:};
   return Promise->new (sub {
     my ($ok, $ng) = @_;
     http_post
-        url => qq{http://$host$url},
+        url => $url,
         basic_auth => [key => 'test'],
         params => $params,
         timeout => 60,

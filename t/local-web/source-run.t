@@ -33,11 +33,12 @@ test {
       is $res->header ('Content-Type'), 'message/http';
       is $res->header ('Content-Disposition'), 'attachment';
       is $res->header ('Content-Security-Policy'), 'sandbox';
+      ok $res->header ('Last-Modified');
       like $res->content, qr{^HTTP/};
       like $res->content, qr{^foo$}m;
     } $c;
   })->then (sub { done $c; undef $c });
-} wait => $wait, n => 7, name => 'fetch ok';
+} wait => $wait, n => 8, name => 'fetch ok';
 
 test {
   my $c = shift;

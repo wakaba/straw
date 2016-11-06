@@ -39,18 +39,21 @@ sub save_stream ($) {
 
 sub load_item_data ($%) {
   my ($self, %args) = @_;
+  my $after = 0+($args{after} || 0);
   return $self->db->select ('stream_item_data', {
     stream_id => Dongry::Type->serialize ('text', $args{stream_id}),
     channel_id => Dongry::Type->serialize ('text', $args{channel_id}),
-    updated => {'>', 0+($args{after} || 0)},
+    updated => {'>', $after},
   }, fields => ['data', 'updated', 'item_key'], order => ['updated', 'asc'], limit => 100)->then (sub {
-    return [map {
+    my $items = [map {
       {
         data => Dongry::Type->parse ('json', $_->{data})->{props},
         timestamp => $_->{updated},
         item_key => $_->{item_key},
       };
     } @{$_[0]->all}];
+    my $next_after = @$items ? $items->[-1]->{timestamp} : $after;
+    return {items => $items, next_after => $next_after};
   });
 } # load_item_data
 

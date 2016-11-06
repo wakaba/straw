@@ -247,13 +247,16 @@ sub fetch ($$$$) {
       }
     })->then (sub {
       my $db = $self->db;
+      my $time = time;
       return $db->insert ('fetch_result', [{
         fetch_key => Dongry::Type->serialize ('text', $fetch_key),
         fetch_options => Dongry::Type->serialize ('json', $options),
         result => $_[0]->as_string,
-        expires => time + 60*60*10,
+        timestamp => $time,
+        expires => $time + 60*60*10,
       }], duplicate => {
         result => $db->bare_sql_fragment ('VALUES(result)'),
+        timestamp => $db->bare_sql_fragment ('VALUES(timestamp)'),
         expires => $db->bare_sql_fragment ('GREATEST(VALUES(expires),expires)'),
       });
     });
@@ -307,10 +310,11 @@ sub load_fetch_result ($$) {
   my ($self, $fetch_key) = @_;
   return $self->db->select ('fetch_result', {
     fetch_key => Dongry::Type->serialize ('text', $fetch_key),
-  }, fields => ['fetch_options', 'result'])->then (sub {
+  }, fields => ['fetch_options', 'result', 'timestamp'])->then (sub {
     my $d = $_[0]->first;
     return undef unless defined $d;
-    return [(json_bytes2perl $d->{fetch_options}), $d->{result}];
+    $d->{fetch_options} = json_bytes2perl $d->{fetch_options};
+    return $d;
   });
 } # load_fetch_result
 

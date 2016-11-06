@@ -162,6 +162,8 @@ $Straw::Step->{parse_rss} = {
                  UNIVERSAL::can ($parsed->{updated}, 'to_unix_number')) {
           $v->{timestamp} = $parsed->{updated};
         }
+        delete $v->{updated};
+        delete $v->{created};
 
         $v->{url} = delete $v->{page_url} if defined $v->{page_url};
 
