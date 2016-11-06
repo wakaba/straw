@@ -328,7 +328,7 @@ test {
       is $res->header ('Content-Type'), 'application/json; charset=utf-8';
       my $json = json_bytes2perl $res->content;
       is 0+@{$json->{items}}, 2;
-      my $items = [sort { $b->{data}->{url} cmp $a->{data}->{url} } {$json->{items}}];
+      my $items = [sort { $b->{data}->{url} cmp $a->{data}->{url} } @{$json->{items}}];
       my $item1 = $items->[0];
       is $item1->{data}->{url}, q<https://url/item/2>;
       is $item1->{data}->{title}, q<Feed Entry 2>;
