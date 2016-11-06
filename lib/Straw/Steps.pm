@@ -164,6 +164,7 @@ $Straw::Step->{parse_rss} = {
         }
         delete $v->{updated};
         delete $v->{created};
+        delete $v->{published};
 
         $v->{url} = delete $v->{page_url} if defined $v->{page_url};
 
