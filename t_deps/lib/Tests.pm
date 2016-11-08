@@ -181,13 +181,13 @@ sub web_server (;@) {
     return $HTTPServer->run;
   })->then (sub {
     my $client = Web::Transport::ConnectionClient->new_from_url ($url);
-    return promised_wait_until {
-      return promised_timeout {
+    return promised_timeout {
+      return promised_wait_until {
         return $client->request (path => ['ping'])->then (sub {
           return not $_[0]->is_network_error;
         }, sub { return 0 });
-      } 10;
-    } interval => 0.3;
+      } interval => 0.3;
+    } 10;
   })->then (sub {
     return {host => $url->hostport};
   })->to_cv;
