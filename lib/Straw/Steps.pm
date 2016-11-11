@@ -330,6 +330,18 @@ $Straw::ItemStep->{delete_substring} = sub {
   return $item;
 }; # delete_substring
 
+$Straw::ItemStep->{copy} = sub {
+  my ($self, $step, $item) = @_;
+
+  die "No |from_field|" unless defined $step->{from_field};
+  die "No |to_field|" unless defined $step->{to_field};
+
+  my $props = $item->{0}->{props};
+  $props->{$step->{to_field}} = $props->{$step->{from_field}};
+
+  return $item;
+}; # copy
+
 $Straw::Step->{dump_stream} = {
   in_type => 'Stream',
   code => sub {
