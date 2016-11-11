@@ -363,6 +363,48 @@ $Straw::ItemStep->{set_timestamp} = sub {
   return $item;
 }; # set_timestamp
 
+$Straw::ItemStep->{set_timestamp_by_month_day} = sub {
+  my ($self, $step, $item) = @_;
+  my $props = $item->{0}->{props};
+
+  die "No |month_field| specified for the step" unless defined $step->{month_field};
+  die "No |day_field| specified for the step" unless defined $step->{day_field};
+  my $m = $props->{$step->{month_field}};
+  my $d = $props->{$step->{day_field}};
+  return $item unless defined $m and defined $d;
+
+  my $ref_t = defined $step->{ref_field} ? $props->{$step->{ref_field}} // time : time;
+  my $ref_dt = Web::DateTime->new_from_unix_time ($ref_t);
+
+  my $dt1 = Web::DateTime->new_from_components ($ref_dt->year-1, $m, $d);
+  my $dt2 = Web::DateTime->new_from_components ($ref_dt->year, $m, $d);
+  my $dt3 = Web::DateTime->new_from_components ($ref_dt->year+1, $m, $d);
+  my $t1 = $dt1->to_unix_number;
+  my $t2 = $dt2->to_unix_number;
+  my $t3 = $dt3->to_unix_number;
+  my $d1 = $ref_t - $t1; $d1 = -$d1 if $d1 < 0;
+  my $d2 = $ref_t - $t2; $d2 = -$d2 if $d2 < 0;
+  my $d3 = $ref_t - $t3; $d3 = -$d3 if $d3 < 0;
+
+  my $t;
+  if ($d1 < $d2) {
+    if ($d1 < $d3) {
+      $t = $t1;
+    } else { # $d3 <= $d1 < $d2
+      $t = $t3;
+    }
+  } else { # $d2 <= $d1
+    if ($d3 < $d2) {
+      $t = $t3;
+    } else { # $d2 <= $d3
+      $t = $t2;
+    }
+  }
+  $item->{0}->{props}->{timestamp} = $t;
+
+  return $item;
+}; # set_timestamp_by_month_day
+
 $Straw::ItemStep->{select_props} = sub {
   my ($self, $step, $item) = @_;
   my $out = {};
