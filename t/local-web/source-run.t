@@ -4,86 +4,84 @@ use Path::Tiny;
 use lib glob path (__FILE__)->parent->parent->parent->child ('t_deps/lib');
 use Tests;
 
-my $wait = web_server;
-
-test {
-  my $c = shift;
-  my $source;
-  return remote ($c, {
-    q<1> => 'foo',
+Test {
+  my $current = shift;
+  return $current->remote ({
+    q<1> => {text => 'foo'},
   })->then (sub {
-    return create_source ($c,
-      fetch => {url => $_[0]->{1}},
+    return $current->create_source (s1 => {
+      fetch => {url => $current->o ('1')->{url}->stringify},
+    });
+  })->then (sub {
+    return $current->post (['source', $current->o ('s1')->{source_id}, 'enqueue'], {});
+  })->then (sub {
+    my $result = $_[0];
+    test {
+      is $result->{status}, 202;
+    } $current->context;
+    return $current->wait_drain;
+  })->then (sub {
+    return $current->client->request (
+      path => ['source', $current->o ('s1')->{source_id}, 'fetched'],
+      basic_auth => [key => 'test'],
     );
   })->then (sub {
-    $source = $_[0];
-    return POST ($c, qq{/source/$source->{source_id}/enqueue}, {});
-  })->then (sub {
     my $res = $_[0];
     test {
-      is $res->code, 202;
-    } $c;
-    return wait_drain $c;
-  })->then (sub {
-    return GET ($c, qq{/source/$source->{source_id}/fetched});
-  })->then (sub {
-    my $res = $_[0];
-    test {
-      is $res->code, 200;
+      is $res->status, 200;
       is $res->header ('Content-Type'), 'message/http';
       is $res->header ('Content-Disposition'), 'attachment';
       is $res->header ('Content-Security-Policy'), 'sandbox';
       ok $res->header ('Last-Modified');
       like $res->content, qr{^HTTP/};
       like $res->content, qr{^foo$}m;
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 8, name => 'fetch ok';
+    } $current->context;
+  });
+} n => 8, name => 'fetch ok';
 
-test {
-  my $c = shift;
-  my $source;
+Test {
+  my $current = shift;
   my $key = rand;
   my $after = time;
-  return Promise->resolve->then (sub {
-    return create_source ($c,
-      fetch => {hoge => $key},
-    );
+  return $current->create_source (s1 => {
+    fetch => {hoge => $key},
   })->then (sub {
-    $source = $_[0];
-    return POST ($c, qq{/source/$source->{source_id}/enqueue}, {});
+    return $current->post (['source', $current->o ('s1')->{source_id}, 'enqueue'], {});
   })->then (sub {
-    my $res = $_[0];
+    my $result = $_[0];
     test {
-      is $res->code, 202;
-    } $c;
-    return wait_drain $c;
+      is $result->{status}, 202;
+    } $current->context;
+    return $current->wait_drain;
   })->then (sub {
-    return GET ($c, qq{/source/$source->{source_id}/fetched});
+    return $current->client->request (
+      path => ['source', $current->o ('s1')->{source_id}, 'fetched'],
+      basic_auth => [key => 'test'],
+    );
   })->then (sub {
     my $res = $_[0];
     test {
       is $res->code, 404;
-    } $c;
-    return GET ($c, qq{/source/logs?after=$after});
+    } $current->context;
+    return $current->get (['source', 'logs'], {after => $after});
   })->then (sub {
-    my $res = $_[0];
+    my $result = $_[0];
     test {
-      is $res->code, 200;
-      is $res->header ('Content-Type'), 'application/json; charset=utf-8';
-      my $json = json_bytes2perl $res->content;
-      my $items = [grep { $_->{error}->{fetch_options}->{hoge} eq $key } @{$json->{items}}];
+      no warnings 'uninitialized';
+      is $result->{status}, 200;
+      my $items = [grep {
+        $_->{error}->{fetch_options}->{hoge} eq $key;
+      } @{$result->{json}->{items}}];
       is 0+@$items, 1;
       ok $items->[0]->{fetch_key};
       is $items->[0]->{origin_key}, undef;
       ok $items->[0]->{timestamp};
       ok $items->[0]->{error}->{message};
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 9, name => 'fetch error';
+    } $current->context;
+  });
+} n => 8, name => 'fetch error';
 
-run_tests;
-stop_web_server;
+RUN;
 
 =head1 LICENSE
 

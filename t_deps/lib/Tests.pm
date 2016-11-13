@@ -423,7 +423,10 @@ sub Test (&;%) {
 } # Test
 
 package Tests::Current;
+use Web::Encoding;
+use MIME::Base64;
 use JSON::PS;
+use Promised::Flow;
 
 sub context ($) {
   return $_[0]->{context};
@@ -437,9 +440,9 @@ sub client ($) {
   };
 } # client
 
-sub get ($$) {
-  my ($self, $path) = @_;
-  return $self->client->request (path => $path, basic_auth => [key => 'test'])->then (sub {
+sub get ($$;$) {
+  my ($self, $path, $params) = @_;
+  return $self->client->request (path => $path, params => $params, basic_auth => [key => 'test'])->then (sub {
     my $res = $_[0];
     die $res unless $res->status == 200;
     my $mime = $res->header ('Content-Type') // '';
@@ -454,7 +457,7 @@ sub post ($$$) {
   my ($self, $path, $params) = @_;
   return $self->client->request (path => $path, params => $params, basic_auth => [key => 'test'], method => 'POST')->then (sub {
     my $res = $_[0];
-    die $res unless $res->status == 200;
+    die $res unless $res->status == 200 || $res->status == 202;
     my $mime = $res->header ('Content-Type') // '';
     die "Bad MIME type |$mime|" unless $mime eq 'application/json; charset=utf-8';
     return {res => $res,
@@ -467,6 +470,48 @@ sub o ($$) {
   my ($self, $name) = @_;
   return $self->{objects}->{$name} || die "Object ($name) not found";
 } # o
+
+sub remote ($$) {
+  my ($self, $eps) = @_;
+  my $remote_origin = Web::URL->parse_string (Tests::remote_url '');
+
+  my @def;
+  my $path1 = rand;
+  for my $key (keys %$eps) {
+    my $url = Web::URL->parse_string ("/$path1/$key", $remote_origin);
+
+    my $headers = {};
+    my $body = '';
+
+    my $def = $eps->{$key};
+    if (defined $def->{text}) {
+      $headers->{'Content-Type'} = 'text/plain;charset=utf-8';
+      $body = encode_web_utf8 $def->{text};
+    } else {
+      die "Bad def for |$key|";
+    }
+
+    push @def, [$url, $headers, $body];
+    $self->{objects}->{$key} = {url => $url};
+  } # $key
+
+  my $client = Web::Transport::ConnectionClient->new_from_url ($remote_origin);
+  return promised_map {
+    my ($url, $headers, $body) = @{$_[0]};
+    $body =~ s{\@\@URL\{([^{}]*)\}\@\@}{
+      my $obj = $self->o ($1);
+      $obj->{url}->stringify;
+    }ge;
+    return $client->request (
+      url => $url,
+      params => {headers => (perl2json_chars $headers),
+                 body => (encode_base64 $body)},
+      method => 'POST',
+    )->then (sub {
+      die $_[0] unless $_[0]->status == 200;
+    });
+  } \@def;
+} # remote
 
 sub create_source ($$$) {
   my ($self, $name, $args) = @_;
@@ -481,6 +526,15 @@ sub create_source ($$$) {
     $self->{objects}->{$name} = $result->{json};
   });
 } # create_source
+
+sub wait_drain ($) {
+  my $self = $_[0];
+  return promised_wait_until {
+    return $self->post (['test', 'queue'], {})->then (sub {
+      return $_[0]->{json}->{empty};
+    });
+  };
+} # wait_drain
 
 sub done ($) {
   my $self = $_[0];
