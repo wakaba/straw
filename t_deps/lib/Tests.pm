@@ -135,13 +135,15 @@ sub remote_url ($) {
 } # remote_url
 }
 
+my $WebURL;
+
 push @EXPORT, qw(web_server);
 sub web_server (;@) {
   my %args = @_;
   my $bearer = rand;
   $MySQLServer = Promised::Mysqld->new;
   my $http_port = find_listenable_port;
-  my $url = Web::URL->parse_string ("http://localhost:$http_port");
+  $WebURL = Web::URL->parse_string ("http://localhost:$http_port");
   return Promise->all ([
     $MySQLServer->start,
     remote_server,
@@ -180,7 +182,7 @@ sub web_server (;@) {
   })->then (sub {
     return $HTTPServer->run;
   })->then (sub {
-    my $client = Web::Transport::ConnectionClient->new_from_url ($url);
+    my $client = Web::Transport::ConnectionClient->new_from_url ($WebURL);
     return promised_timeout {
       return promised_wait_until {
         return $client->request (path => ['ping'])->then (sub {
@@ -189,7 +191,7 @@ sub web_server (;@) {
       } interval => 0.3;
     } 10;
   })->then (sub {
-    return {host => $url->hostport};
+    return {host => $WebURL->hostport};
   })->to_cv;
 } # web_server
 
@@ -395,6 +397,98 @@ sub remote ($$) {
   }
   return $p->then (sub { return $result });
 } # remote
+
+push @EXPORT, qw(RUN);
+sub RUN () {
+  web_server->recv;
+  run_tests;
+  stop_web_server;
+} # RUN
+
+push @EXPORT, qw(Test);
+sub Test (&;%) {
+  my $code = shift;
+  test (sub {
+    my $current = bless {context => $_[0], web_url => $WebURL || die "No WebURL"}, 'Tests::Current';
+    promised_cleanup {
+      return $current->done;
+    } Promise->resolve ($current)->then ($code)->catch (sub {
+      my $error = $_[0];
+      test {
+        ok 0, 'No exception';
+        is $error, undef, 'No exception';
+      } $current->context;
+    });
+  }, @_);
+} # Test
+
+package Tests::Current;
+use JSON::PS;
+
+sub context ($) {
+  return $_[0]->{context};
+} # context
+
+sub client ($) {
+  my $self = $_[0];
+  return $self->{client} ||= do {
+    my $http = Web::Transport::ConnectionClient->new_from_url ($self->{web_url});
+    $http;
+  };
+} # client
+
+sub get ($$) {
+  my ($self, $path) = @_;
+  return $self->client->request (path => $path, basic_auth => [key => 'test'])->then (sub {
+    my $res = $_[0];
+    die $res unless $res->status == 200;
+    my $mime = $res->header ('Content-Type') // '';
+    die "Bad MIME type |$mime|" unless $mime eq 'application/json; charset=utf-8';
+    return {res => $res,
+            status => $res->status,
+            json => json_bytes2perl $res->body_bytes};
+  });
+} # get
+
+sub post ($$$) {
+  my ($self, $path, $params) = @_;
+  return $self->client->request (path => $path, params => $params, basic_auth => [key => 'test'], method => 'POST')->then (sub {
+    my $res = $_[0];
+    die $res unless $res->status == 200;
+    my $mime = $res->header ('Content-Type') // '';
+    die "Bad MIME type |$mime|" unless $mime eq 'application/json; charset=utf-8';
+    return {res => $res,
+            status => $res->status,
+            json => json_bytes2perl $res->body_bytes};
+  });
+} # post
+
+sub o ($$) {
+  my ($self, $name) = @_;
+  return $self->{objects}->{$name} || die "Object ($name) not found";
+} # o
+
+sub create_source ($$$) {
+  my ($self, $name, $args) = @_;
+  $args->{type} //= 'fetch_source' if defined $args->{fetch};
+  return $self->post (['source'], {
+    type => $args->{type},
+    fetch_options => (perl2json_bytes $args->{fetch}),
+    schedule_options => (perl2json_bytes ($args->{schedule} || {})),
+  })->then (sub {
+    my $result = $_[0];
+    die $result->{res} unless $result->{status} == 200;
+    $self->{objects}->{$name} = $result->{json};
+  });
+} # create_source
+
+sub done ($) {
+  my $self = $_[0];
+  (delete $self->{context})->done;
+  return Promise->all ([
+    (defined $self->{client} ? $self->{client}->close : undef),
+  ]);
+} # done
 
 1;
 
