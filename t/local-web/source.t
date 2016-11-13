@@ -4,174 +4,165 @@ use Path::Tiny;
 use lib glob path (__FILE__)->parent->parent->parent->child ('t_deps/lib');
 use Tests;
 
-my $wait = web_server;
-
-test {
-  my $c = shift;
-  return GET ($c, q</source>)->then (sub {
+Test {
+  my $current = shift;
+  return $current->get (['source'])->catch (sub {
     my $res = $_[0];
     test {
       is $res->code, 405;
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/source GET';
+    } $current->context;
+  });
+} n => 1, name => '/source GET';
 
-test {
-  my $c = shift;
-  return POST ($c, q</source>, {})->then (sub {
+Test {
+  my $current = shift;
+  return $current->post (['source'], {})->catch (sub {
+    my $res = $_[0];
+    test {
+      is $res->status, 400;
+    } $current->context;
+  });
+} n => 1, name => '/source POST';
+
+Test {
+  my $current = shift;
+  return $current->post (['source'], {type => 'hoge'})->catch (sub {
     my $res = $_[0];
     test {
       is $res->code, 400;
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/source POST';
+    } $current->context;
+  });
+} n => 1, name => '/source POST bad type';
 
-test {
-  my $c = shift;
-  return POST ($c, q</source>, {type => 'hoge'})->then (sub {
-    my $res = $_[0];
-    test {
-      is $res->code, 400;
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/source POST bad type';
-
-test {
-  my $c = shift;
-  return POST ($c, q</source>, {
+Test {
+  my $current = shift;
+  return $current->post (['source'], {
     type => 'fetch_source',
-  })->then (sub {
+  })->catch (sub {
     my $res = $_[0];
     test {
       is $res->code, 400;
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/source POST fetch_source no options';
+    } $current->context;
+  });
+} n => 1, name => '/source POST fetch_source no options';
 
-test {
-  my $c = shift;
-  return POST ($c, q</source>, {
+Test {
+  my $current = shift;
+  return $current->post (['source'], {
     type => 'fetch_source',
     fetch_options => '[]',
     schedule_options => '[]',
-  })->then (sub {
+  })->catch (sub {
     my $res = $_[0];
     test {
       is $res->code, 400;
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/source POST fetch_source bad options';
+    } $current->context;
+  });
+} n => 1, name => '/source POST fetch_source bad options';
 
-test {
-  my $c = shift;
-  return POST ($c, q</source>, {
+Test {
+  my $current = shift;
+  return $current->post (['source'], {
     type => 'fetch_source',
     fetch_options => '{"a":1}',
     schedule_options => '{"b":2}',
   })->then (sub {
-    my $res = $_[0];
-    my $json = json_bytes2perl $res->content;
+    my $result = $_[0];
     test {
-      is $res->code, 200;
-      ok $json->{source_id};
-      like $res->content, qr{"source_id"\s*:\s*"};
-    } $c;
-    return GET ($c, qq{/source/$json->{source_id}});
+      is $result->{status}, 200;
+      ok $result->{json}->{source_id};
+      like $result->{res}->content, qr{"source_id"\s*:\s*"};
+    } $current->context;
+    return $current->get (['source', $result->{json}->{source_id}]);
   })->then (sub {
-    my $res = $_[0];
-    my $json = json_bytes2perl $res->content;
+    my $result = $_[0];
     test {
-      is $res->code, 200;
-      is $json->{type}, 'fetch_source';
-      like $json->{fetch}->{fetch_key}, qr{^[0-9a-f]{80}$};
-      is $json->{fetch}->{fetch_options}->{a}, 1;
-      is $json->{fetch}->{schedule_options}->{b}, 2;
-      is $json->{source_id}, $json->{source_id};
-      like $res->content, qr{"source_id"\s*:\s*"};
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 10, name => '/source POST fetch_source';
+      is $result->{status}, 200;
+      is $result->{json}->{type}, 'fetch_source';
+      like $result->{json}->{fetch}->{fetch_key}, qr{^[0-9a-f]{80}$};
+      is $result->{json}->{fetch}->{fetch_options}->{a}, 1;
+      is $result->{json}->{fetch}->{schedule_options}->{b}, 2;
+      is $result->{json}->{source_id}, $result->{json}->{source_id};
+      like $result->{res}->content, qr{"source_id"\s*:\s*"};
+    } $current->context;
+  });
+} n => 10, name => '/source POST fetch_source';
 
-test {
-  my $c = shift;
-  return GET ($c, qq{/source/532333})->then (sub {
+Test {
+  my $current = shift;
+  return $current->get (['source', '532333'])->catch (sub {
     my $res = $_[0];
-    my $json = json_bytes2perl $res->content;
     test {
-      is $res->code, 404;
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/source/{source_id} GET not found';
+      is $res->status, 404;
+    } $current->context;
+  });
+} n => 1, name => '/source/{source_id} GET not found';
 
-test {
-  my $c = shift;
-  return POST ($c, qq{/source/532333}, {
+Test {
+  my $current = shift;
+  return $current->post (['source', '532333'], {
     fetch_options => perl2json_bytes {c => 55},
     schedule_options => perl2json_bytes {d => 51},
-  })->then (sub {
+  })->catch (sub {
     my $res = $_[0];
-    my $json = json_bytes2perl $res->content;
     test {
-      is $res->code, 404;
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/source/{source_id} POST not found';
+      is $res->status, 404;
+    } $current->context;
+  });
+} n => 1, name => '/source/{source_id} POST not found';
 
-test {
-  my $c = shift;
-  return create_source ($c,
+Test {
+  my $current = shift;
+  return $current->create_source (s1 => {
     fetch => {a => 5},
     schedule => {b => 1},
-  )->then (sub {
-    my $source = $_[0];
-    return GET ($c, qq{/source/$source->{source_id}});
   })->then (sub {
-    my $res = $_[0];
-    my $json = json_bytes2perl $res->content;
+    return $current->get (['source', $current->o ('s1')->{source_id}]);
+  })->then (sub {
+    my $result = $_[0];
     test {
-      is $res->code, 200;
+      is $result->{status}, 200;
+      my $json = $result->{json};
       is $json->{type}, 'fetch_source';
       like $json->{fetch}->{fetch_key}, qr{^[0-9a-f]{80}$};
       is $json->{fetch}->{fetch_options}->{a}, 5;
       is $json->{fetch}->{schedule_options}->{b}, 1;
       is $json->{source_id}, $json->{source_id};
-      like $res->content, qr{"source_id"\s*:\s*"};
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 7, name => '/source/{source_id} GET';
+      like $result->{res}->content, qr{"source_id"\s*:\s*"};
+    } $current->context;
+  });
+} n => 7, name => '/source/{source_id} GET';
 
-test {
-  my $c = shift;
-  my $source;
-  return create_source ($c,
+Test {
+  my $current = shift;
+  return $current->create_source (s1 => {
     fetch => {a => 5},
     schedule => {b => 1},
-  )->then (sub {
-    $source = $_[0];
-    return POST ($c, qq{/source/$source->{source_id}}, {
+  })->then (sub {
+    return $current->post (['source', $current->o ('s1')->{source_id}], {
       fetch_options => perl2json_bytes {c => 55},
       schedule_options => perl2json_bytes {d => 51},
     });
   })->then (sub {
-    my $res = $_[0];
+    my $result = $_[0];
     test {
-      is $res->code, 200;
-    } $c;
-    return POST ($c, qq{/source/$source->{source_id}}, {
+      is $result->{status}, 200;
+    } $current->context;
+    return $current->post (['source', $current->o ('s1')->{source_id}], {
       fetch_options => perl2json_bytes {c => 55},
       schedule_options => undef,
     });
-  })->then (sub {
+  })->catch (sub {
     my $res = $_[0];
     test {
-      is $res->code, 400;
-    } $c;
-    return GET ($c, qq{/source/$source->{source_id}});
+      is $res->status, 400;
+    } $current->context;
+    return $current->get (['source', $current->o ('s1')->{source_id}]);
   })->then (sub {
-    my $res = $_[0];
-    my $json = json_bytes2perl $res->content;
+    my $result = $_[0];
     test {
-      is $res->code, 200;
+      is $result->{status}, 200;
+      my $json = $result->{json};
       is $json->{type}, 'fetch_source';
       like $json->{fetch}->{fetch_key}, qr{^[0-9a-f]{80}$};
       is $json->{fetch}->{origin_key}, undef;
@@ -180,73 +171,70 @@ test {
       is $json->{fetch}->{schedule_options}->{b}, undef;
       is $json->{fetch}->{schedule_options}->{d}, 51;
       is $json->{source_id}, $json->{source_id};
-      like $res->content, qr{"source_id"\s*:\s*"};
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 12, name => '/source/{source_id} GET';
+      like $result->{res}->content, qr{"source_id"\s*:\s*"};
+    } $current->context;
+  });
+} n => 12, name => '/source/{source_id} GET';
 
-test {
-  my $c = shift;
-  return POST ($c, q</source>, {
+Test {
+  my $current = shift;
+  return $current->post (['source'], {
     type => 'fetch_source',
     fetch_options => '{"url":"https://hoge.test/foo/bar"}',
     schedule_options => '{"b":2}',
   })->then (sub {
-    my $res = $_[0];
-    my $json = json_bytes2perl $res->content;
+    my $result = $_[0];
     test {
-      is $res->code, 200;
-      ok $json->{source_id};
-      like $res->content, qr{"source_id"\s*:\s*"};
-    } $c;
-    return GET ($c, qq{/source/$json->{source_id}});
+      is $result->{status}, 200;
+      ok $result->{json}->{source_id};
+      like $result->{res}->content, qr{"source_id"\s*:\s*"};
+    } $current->context;
+    return $current->get (['source', $result->{json}->{source_id}]);
   })->then (sub {
-    my $res = $_[0];
-    my $json = json_bytes2perl $res->content;
+    my $result = $_[0];
     test {
-      is $res->code, 200;
+      is $result->{status}, 200;
+      my $json = $result->{json};
       is $json->{type}, 'fetch_source';
       like $json->{fetch}->{fetch_key}, qr{^[0-9a-f]{80}$};
       like $json->{fetch}->{origin_key}, qr{^[0-9a-f]{40}$};
       is $json->{fetch}->{schedule_options}->{b}, 2;
       is $json->{source_id}, $json->{source_id};
-      like $res->content, qr{"source_id"\s*:\s*"};
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 10, name => '/source POST fetch_source with origin_key';
+      like $result->{res}->content, qr{"source_id"\s*:\s*"};
+    } $current->context;
+  });
+} n => 10, name => '/source POST fetch_source with origin_key';
 
-test {
-  my $c = shift;
-  return POST ($c, q</source>, {
+Test {
+  my $current = shift;
+  return $current->post (['source'], {
     type => 'fetch_source',
     fetch_options => '{"url":"about:hoge.test/foo/bar"}',
     schedule_options => '{"b":2}',
   })->then (sub {
-    my $res = $_[0];
-    my $json = json_bytes2perl $res->content;
+    my $result = $_[0];
     test {
-      is $res->code, 200;
-      ok $json->{source_id};
-      like $res->content, qr{"source_id"\s*:\s*"};
-    } $c;
-    return GET ($c, qq{/source/$json->{source_id}});
+      is $result->{status}, 200;
+      ok $result->{json}->{source_id};
+      like $result->{res}->content, qr{"source_id"\s*:\s*"};
+    } $current->context;
+    return $current->get (['source', $result->{json}->{source_id}]);
   })->then (sub {
-    my $res = $_[0];
-    my $json = json_bytes2perl $res->content;
+    my $result = $_[0];
     test {
-      is $res->code, 200;
+      is $result->{status}, 200;
+      my $json = $result->{json};
       is $json->{type}, 'fetch_source';
       like $json->{fetch}->{fetch_key}, qr{^[0-9a-f]{80}$};
       is $json->{fetch}->{origin_key}, undef;
       is $json->{fetch}->{schedule_options}->{b}, 2;
       is $json->{source_id}, $json->{source_id};
-      like $res->content, qr{"source_id"\s*:\s*"};
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 10, name => '/source POST fetch_source with no origin_key';
+      like $result->{res}->body_bytes, qr{"source_id"\s*:\s*"};
+    } $current->context;
+  });
+} n => 10, name => '/source POST fetch_source with no origin_key';
 
-run_tests;
-stop_web_server;
+RUN;
 
 =head1 LICENSE
 

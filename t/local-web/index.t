@@ -4,24 +4,32 @@ use Path::Tiny;
 use lib glob path (__FILE__)->parent->parent->parent->child ('t_deps/lib');
 use Tests;
 
-my $wait = web_server;
+Test {
+  my $current = shift;
+  return $current->client->request (path => [])->then (sub {
+    my $res = $_[0];
+    test {
+      is $res->code, 401;
+    } $current->context;
+  });
+} n => 1, name => '/ no auth';
 
-test {
-  my $c = shift;
-  return GET ($c, q</>)->then (sub {
+Test {
+  my $current = shift;
+  return $current->client->request (path => [], basic_auth => [key => 'test'])->then (sub {
     my $res = $_[0];
     test {
       is $res->code, 200;
-    } $c;
-  })->then (sub { done $c; undef $c });
-} wait => $wait, n => 1, name => '/';
+      like $res->header ('Content-Type'), qr{^text/html};
+    } $current->context;
+  });
+} n => 2, name => '/ with auth';
 
-run_tests;
-stop_web_server;
+RUN;
 
 =head1 LICENSE
 
-Copyright 2015 Wakaba <wakaba@suikawiki.org>.
+Copyright 2015-2016 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
