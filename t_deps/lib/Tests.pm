@@ -22,7 +22,12 @@ use Sarze;
 
 our @EXPORT;
 
-push @EXPORT, grep { not /^\$/ } @Test::More::EXPORT, @Test::X1::EXPORT, @JSON::PS::EXPORT, 'time';
+push @EXPORT, grep { not /^\$/ }
+    @Test::More::EXPORT,
+    @Test::X1::EXPORT,
+    @JSON::PS::EXPORT,
+    'time',
+    @Promised::Flow::EXPORT;
 
 sub import ($;@) {
   my $from_class = shift;
@@ -399,8 +404,8 @@ sub remote ($$) {
 } # remote
 
 push @EXPORT, qw(RUN);
-sub RUN () {
-  web_server->recv;
+sub RUN (;%) {
+  web_server (@_)->recv;
   run_tests;
   stop_web_server;
 } # RUN
@@ -526,6 +531,20 @@ sub create_source ($$$) {
     $self->{objects}->{$name} = $result->{json};
   });
 } # create_source
+
+sub source_fetched ($$) {
+  my ($self, $source) = @_;
+  return $self->client->request (
+    path => ['source', $source->{source_id}, 'fetched'],
+    basic_auth => [key => 'test'],
+  )->then (sub {
+    my $res = $_[0];
+    die $res unless $res->status == 200;
+    my $mime = $res->header ('Content-Type') // '';
+    die "Bad MIME type |$mime|" unless $mime eq 'message/http';
+    return $res;
+  });
+} # source_fetched
 
 sub wait_drain ($) {
   my $self = $_[0];
