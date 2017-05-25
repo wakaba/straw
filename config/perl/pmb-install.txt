@@ -1,9 +1,8 @@
 AnyEvent~7.13
 AnyEvent::Fork~1.31
 AnyEvent::HTTP~2.23
-AnyEvent::Socket
 Canary::Stability~2012
-Carp::Heavy~1.38
+Carp~1.38
 Cwd~3.62
 Data::Dumper~2.161
 Digest::SHA~5.96
@@ -13,7 +12,7 @@ Exporter::Lite~0.08
 File::Path~2.12
 File::Temp~0.2304
 HTTP::Date~6.02
-HTTP::Request~6.11
+HTTP::Response~6.11
 IO::FDPass~1.2
 IO::HTML~1.001
 IO::Handle~1.28
