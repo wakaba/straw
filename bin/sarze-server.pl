@@ -16,7 +16,7 @@ Sarze->start (
   ],
   psgi_file_name => path (__FILE__)->parent->child ('server.psgi'),
   worker_background_class => 'Straw::Worker',
-  #max_worker_count => 1,
+  max_worker_count => 2,
 )->then (sub {
   my $server = $_[0];
   my @p;
