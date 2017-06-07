@@ -18,6 +18,7 @@ deps: always
 ifdef PMBP_HEROKU_BUILDPACK
 else
 	$(MAKE) git-submodules
+	mkdir -p local
 	git rev-parse HEAD > local/rev.txt
 endif
 	$(MAKE) pmbp-install
