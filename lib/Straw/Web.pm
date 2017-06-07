@@ -24,12 +24,11 @@ sub psgi_app ($) {
   return sub {
     my $http = Wanage::HTTP->new_from_psgi_env ($_[0]);
     my $app = Warabe::App->new_from_http ($http);
+    my $db = $_[0]->{'manakai.server.state'}->background->db;
 
     # XXX accesslog
     warn sprintf "Access: [%s] %s %s\n",
         scalar gmtime, $app->http->request_method, $app->http->url->stringify;
-
-    my $db = $_[0]->{'manakai.server.state'}->db;
 
     return $app->execute_by_promise (sub {
       $app->requires_basic_auth ({key => $Config->{api_key}});
