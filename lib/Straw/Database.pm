@@ -4,7 +4,6 @@ use warnings;
 use Path::Tiny;
 use Dongry::Type;
 use Dongry::Type::JSONPS;
-use Dongry::Database;
 
 my $config_path = path ($ENV{APP_CONFIG} // die "Bad |APP_CONFIG|");
 
