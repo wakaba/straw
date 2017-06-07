@@ -16,7 +16,7 @@ my $ProcessInterval = $ENV{STRAW_WORKER_INTERVAL} || 60;
 sub start ($) {
   my $self = bless {}, $_[0];
 
-  my $db = Dongry::Database->new (sources => $Straw::Database::Sources);
+  $self->{db} = Dongry::Database->new (sources => $Straw::Database::Sources);
 
   my %stop_timer;
   my $done = 0;
@@ -36,7 +36,7 @@ sub start ($) {
     Straw::Fetch
     Straw::Process
   )) {
-    my $obj = $class->new_from_db ($db);
+    my $obj = $class->new_from_db ($self->{db});
     $run{$class} = sub {
       return unless $_[0];
       return $obj->run->then (sub {
@@ -62,7 +62,6 @@ sub start ($) {
     %run = ();
     %timer = ();
     %stop_timer = ();
-    return $db->disconnect;
   } promised_cleanup {
     return $self->{shutdown}->();
   } Promise->all (\@p);
@@ -78,11 +77,22 @@ sub completed ($) {
   return $_[0]->{completed};
 } # completed
 
+sub db ($) {
+  return $_[0]->{db};
+} # db
+
+sub destroy ($) {
+  my $self = $_[0];
+  return Promise->all ([
+    (defined $self->{db} ? $self->{db}->disconnect : undef),
+  ]);
+} # destroy
+
 1;
 
 =head1 LICENSE
 
-Copyright 2016 Wakaba <wakaba@suikawiki.org>.
+Copyright 2016-2017 Wakaba <wakaba@suikawiki.org>.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
