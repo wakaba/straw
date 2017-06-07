@@ -18,6 +18,7 @@ deps: always
 ifdef PMBP_HEROKU_BUILDPACK
 else
 	$(MAKE) git-submodules
+	git rev-parse HEAD > local/rev.txt
 endif
 	$(MAKE) pmbp-install
 
@@ -47,7 +48,7 @@ create-commit-for-heroku:
 	git rm .gitmodules
 	git rm -r t_deps/modules
 	git rm modules/* --cached
-	git add -f modules/*/*
+	git add -f modules/*/* local/rev.txt
 	git commit -m "for heroku"
 
 build-heroku:
