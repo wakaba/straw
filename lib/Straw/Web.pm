@@ -29,16 +29,14 @@ sub psgi_app ($) {
     warn sprintf "Access: [%s] %s %s\n",
         scalar gmtime, $app->http->request_method, $app->http->url->stringify;
 
-    my $db = Dongry::Database->new (sources => $Straw::Database::Sources);
+    my $db = $_[0]->{'manakai.server.state'}->db;
 
     return $app->execute_by_promise (sub {
       $app->requires_basic_auth ({key => $Config->{api_key}});
 
       return Promise->resolve->then (sub {
         return $class->main ($app, $db);
-      })->then (sub {
-        return $db->disconnect;
-      }, sub {
+      })->catch (sub {
         my $e = $_[0];
         http_post
             url => $Config->{ikachan_prefix} . '/privmsg',
@@ -48,7 +46,7 @@ sub psgi_app ($) {
               #rules => $rules,
             },
             anyevent => 1;
-        return $db->disconnect->then (sub { die $e }, sub { die $e });
+        die $e;
       });
     });
   };
