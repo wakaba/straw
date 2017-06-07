@@ -13,6 +13,9 @@ use Straw::Process;
 
 my $ProcessInterval = $ENV{STRAW_WORKER_INTERVAL} || 60;
 
+# XXX
+$Dongry::Database::ReadOnlyQueryPattern = qr/(?!)/;
+
 sub start ($) {
   my $self = bless {}, $_[0];
 
