@@ -19,6 +19,8 @@ my $Config = $Straw::Database::Config;
 my $IndexFile = Promised::File->new_from_path
     (path (__FILE__)->parent->parent->parent->child ('index.html'));
 
+my $Rev = path (__FILE__)->parent->parent->parent->child ('local/rev.txt')->slurp;
+
 sub psgi_app ($) {
   my ($class) = @_;
   return sub {
@@ -31,6 +33,13 @@ sub psgi_app ($) {
         scalar gmtime, $app->http->request_method, $app->http->url->stringify;
 
     return $app->execute_by_promise (sub {
+      if (@{$app->path_segments} == 1 and
+          $app->path_segments->[0] eq 'robots.txt') {
+        # /robots.txt
+        $app->http->set_response_header ('X-Rev', $Rev);
+        return $app->send_plain_text ("User-agent: *\x0ADisallow: /");
+      }
+
       $app->requires_basic_auth ({key => $Config->{api_key}});
 
       return Promise->resolve->then (sub {
