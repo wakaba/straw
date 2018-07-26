@@ -1,0 +1,8 @@
+{
+  "circleci": {
+    "pmbp": "latest",
+    "heroku": true,
+    "merger": true,
+    "gaa": true
+  }
+}
