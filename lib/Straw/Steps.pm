@@ -130,7 +130,8 @@ $Straw::Step->{parse_rss} = {
     if (defined $parsed) {
       my $c = sub {
         my $v = $_[0];
-
+        my $item = {props => $v};
+        
         if (defined $v->{title} and
             UNIVERSAL::can ($v->{title}, 'text_content')) {
           $v->{title} = $v->{title}->text_content;
@@ -146,6 +147,7 @@ $Straw::Step->{parse_rss} = {
 
         if (defined $v->{content}) {
           if (UNIVERSAL::can ($v->{content}, 'text_content')) {
+            $item->{content_element} = $v->{content};
             $v->{content_text} = (delete $v->{content})->text_content;
           } else {
             $v->{content_text} = delete $v->{content};
@@ -168,10 +170,10 @@ $Straw::Step->{parse_rss} = {
 
         $v->{url} = delete $v->{page_url} if defined $v->{page_url};
 
-        return $v;
+        return $item;
       }; # $c
 
-      push @{$stream->{items}}, map { {0 => {props => $c->($_)}} } @{delete $parsed->{entries}};
+      push @{$stream->{items}}, map { {0 => $c->($_)} } @{delete $parsed->{entries}};
     }
 
     return $stream;
@@ -444,21 +446,25 @@ $Straw::ItemStep->{set_if_defined} = sub {
 }; # set_if_defined
 
 #XXX
-$Straw::ItemStep->{bookmark_entry_image} = sub {
+$Straw::ItemStep->{parse_hatena_bookmark_favorite} = sub {
   my ($self, $step, $item) = @_;
-  my $v = $item->{0}->{props}->{'http://purl.org/rss/1.0/modules/content/encoded'};
-  if (defined $v and @$v and length $v->[0]) {
-    my $doc = new Web::DOM::Document;
-    $doc->manakai_is_html (1);
-    $doc->inner_html ($v->[0]);
-    my $img = $doc->query_selector ('blockquote > p > a > img:only-child');
+  
+  my $v = $item->{0}->{content_element};
+  if (defined $v) {
+    my $img = $v->query_selector ('blockquote > p > a > img:only-child');
     if (defined $img) {
       my $url = $img->src;
-      $item->{props}->{entry_image_url} = $url if length $url;
+      $item->{0}->{props}->{hatena_bookmark_entry_image_url} = $url
+          if length $url;
+    }
+    for my $text (@{$v->query_selector_all ('blockquote > p')}) {
+      $item->{0}->{props}->{hatena_bookmark_entry_text} = $text->text_content;
+      last if length $item->{0}->{props}->{hatena_bookmark_entry_text};
+      delete $item->{0}->{props}->{hatena_bookmark_entry_text};
     }
   }
   return $item;
-}; # bookmark_entry_image
+}; # parse_hatena_bookmark_favorite
 
 $Straw::ItemStep->{cleanup_title} = sub {
   my ($self, $step, $item) = @_;
