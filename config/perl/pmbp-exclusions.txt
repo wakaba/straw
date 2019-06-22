@@ -23,3 +23,5 @@
 - "../../modules/twiggy-packed" tests
 - "../../t_deps/modules/test-x1" tests
 - "../../t_deps/modules/promised-mysqld" tests
+
+- "../../modules/streams" build tests
